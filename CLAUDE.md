@@ -4,6 +4,8 @@
 
 ## Charger le contexte utile
 
+En début de session, lis `NOTES.md` : il dit où le travail s'est arrêté, la prochaine tâche et les pièges déjà rencontrés. Mets-le à jour en fin de session.
+
 Ne lis pas toute la documentation à chaque tâche. Avant une modification, consulte le document correspondant :
 
 - Pipeline, audio, VAD, STT, traduction, sous-titres ou intégration OBS : `docs/architecture.md`.

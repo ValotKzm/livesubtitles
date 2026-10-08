@@ -18,6 +18,7 @@
 !AGENTS.md
 !CLAUDE.md
 !PLAN.md
+!NOTES.md
 
 # Exclude lock files
 *.lock.json

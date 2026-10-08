@@ -10,7 +10,7 @@ Les objectifs produit sont dans [docs/product.md](docs/product.md), l'architectu
 
 ## État courant
 
-Au 2026-10-08, les jalons 0 à 3 sont terminés. Le plugin, issu du modèle officiel `obs-plugintemplate`, compile avec les commandes de [docs/development.md](docs/development.md) et se charge dans OBS 32.2.2. Sa source `livesubtitles_source` propose le choix du microphone et une activation, capte l'audio de la source choisie dans un tampon borné, détecte la parole avec Silero VAD sur un fil dédié et affiche son état (parole ou silence, niveau) à la place des sous-titres. Aucune transcription ni traduction n'existe encore.
+Au 2026-10-08, les jalons 0 à 3 et la première étape du jalon 4 sont terminés. Le plugin, issu du modèle officiel `obs-plugintemplate`, compile avec les commandes de [docs/development.md](docs/development.md) et se charge dans OBS 32.2.2. Sa source `livesubtitles_source` propose le choix du microphone et une activation, capte l'audio de la source choisie dans un tampon borné, détecte la parole avec Silero VAD sur un fil dédié et, à la fin de chaque prise de parole, affiche sa traduction anglaise produite par Whisper `small` en une inférence. Il n'y a pas encore d'affichage progressif, d'expiration du texte, de choix de langues ni de réglages de style. L'état détaillé et la reprise sont dans [NOTES.md](NOTES.md).
 
 **Prochaine étape : intégrer la traduction en étape distincte (option B, rendue nécessaire par l'objectif multilingue de [docs/product.md](docs/product.md)), puis affichage progressif (jalon 4, seconde étape).**
 
@@ -74,9 +74,9 @@ Compléter les tests pertinents, vérifier confidentialité, mémoire bornée, n
 
 ## Décisions encore ouvertes
 
-Tranché au jalon 0 (voir [docs/development.md](docs/development.md)) : version cible d'OBS, langage et système de build, capture audio, VAD, STT, licence du plugin, traduction en une étape pour démarrer.
+Tranché au jalon 0 (voir [docs/development.md](docs/development.md)) : version cible d'OBS, langage et système de build, capture audio, VAD, STT, licence du plugin. La traduction en une étape choisie pour démarrer est abandonnée au profit de l'option B.
 
-Encore ouvert : confirmation par mesure de la traduction en une étape (jalon 5), intégration de l'option B (décidée le 2026-10-08; `small` en une étape en attendant), choix final du modèle de traduction et livraison du modèle de la paire choisie, mode de livraison des modèles (installateur ou téléchargement annoncé), packaging.
+Encore ouvert : intégration de l'option B (décidée le 2026-10-08; `small` en une étape en attendant), choix final du modèle de traduction et livraison du modèle de la paire choisie, mode de livraison des modèles (installateur ou téléchargement annoncé), packaging.
 
 ## Règle de progression
 
