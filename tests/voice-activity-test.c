@@ -101,7 +101,6 @@ static struct run_result run(struct voice_activity *vad, const float *samples, s
 	struct speech_detector detector;
 	struct speech_detector_params params = speech_detector_default_params();
 	speech_detector_init(&detector, &params);
-	voice_activity_reset(vad);
 
 	for (size_t offset = 0; offset + VOICE_ACTIVITY_WINDOW_SAMPLES <= count;
 	     offset += VOICE_ACTIVITY_WINDOW_SAMPLES) {
@@ -110,6 +109,7 @@ static struct run_result run(struct voice_activity *vad, const float *samples, s
 			CHECK(!"voice_activity_process failed");
 			break;
 		}
+		/* Also fails on NaN, which compares false with everything. */
 		CHECK(probability >= 0.0f && probability <= 1.0f);
 
 		enum speech_event event = speech_detector_update(&detector, probability, VOICE_ACTIVITY_WINDOW_MS);
@@ -121,6 +121,23 @@ static struct run_result run(struct voice_activity *vad, const float *samples, s
 
 	result.speaking_at_end = speech_detector_is_speaking(&detector);
 	return result;
+}
+
+/* Leaves freed heap blocks full of NaN bit patterns, as in a long-running host
+ * process, so that state the library forgets to initialize shows up here. */
+static void dirty_heap(void)
+{
+	enum { BLOCKS = 4096 };
+	static void *blocks[BLOCKS];
+
+	for (int i = 0; i < BLOCKS; i++) {
+		size_t size = (size_t)64 << (i % 12);
+		blocks[i] = malloc(size);
+		if (blocks[i])
+			memset(blocks[i], 0xFF, size);
+	}
+	for (int i = 0; i < BLOCKS; i++)
+		free(blocks[i]);
 }
 
 static void log_library_message(bool is_error, const char *message)
@@ -139,18 +156,14 @@ int main(int argc, char **argv)
 
 	CHECK(voice_activity_create("this-model-does-not-exist.bin") == NULL);
 
+	dirty_heap();
 	struct voice_activity *vad = voice_activity_create(argv[1]);
 	CHECK(vad != NULL);
 	if (!vad)
 		return check_result("voice activity");
 
-	/* Two seconds of digital silence never start speech. */
 	size_t silence_count = VOICE_ACTIVITY_SAMPLE_RATE * 2;
 	float *silence = calloc(silence_count, sizeof(float));
-	struct run_result quiet = run(vad, silence, silence_count);
-	CHECK(quiet.windows > 0);
-	CHECK(quiet.starts == 0);
-	CHECK(quiet.speech_windows == 0);
 
 	/* Reference speech followed by two seconds of silence: speech is
 	 * detected for a good part of the recording and ends in the silence. */
@@ -162,6 +175,8 @@ int main(int argc, char **argv)
 		float *padded = calloc(total, sizeof(float));
 		memcpy(padded, speech, speech_count * sizeof(float));
 
+		/* First use of a new instance, as the plugin does: it must work
+		 * without an explicit reset. */
 		clock_t begin = clock();
 		struct run_result spoken = run(vad, padded, total);
 		double elapsed_ms = (double)(clock() - begin) * 1000.0 / CLOCKS_PER_SEC;
@@ -176,9 +191,22 @@ int main(int argc, char **argv)
 		CHECK(spoken.speech_windows * 4 > spoken.windows);
 		CHECK(elapsed_ms / spoken.windows < VOICE_ACTIVITY_WINDOW_MS);
 
+		/* After a reset the same audio gives the same result. */
+		voice_activity_reset(vad);
+		struct run_result again = run(vad, padded, total);
+		CHECK(again.starts == spoken.starts);
+		CHECK(again.speech_windows == spoken.speech_windows);
+
 		free(padded);
 		free(speech);
 	}
+
+	/* Two seconds of digital silence never start speech. */
+	voice_activity_reset(vad);
+	struct run_result quiet = run(vad, silence, silence_count);
+	CHECK(quiet.windows > 0);
+	CHECK(quiet.starts == 0);
+	CHECK(quiet.speech_windows == 0);
 
 	free(silence);
 	voice_activity_destroy(vad);

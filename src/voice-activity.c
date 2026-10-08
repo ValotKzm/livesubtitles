@@ -63,6 +63,10 @@ struct voice_activity *voice_activity_create(const char *model_path)
 		free(vad);
 		return NULL;
 	}
+
+	/* whisper.cpp leaves the recurrent state uninitialized until the first
+	 * reset; left as is, it can make every probability NaN. */
+	whisper_vad_reset_state(vad->context);
 	return vad;
 }
 
