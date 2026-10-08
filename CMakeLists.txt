@@ -27,16 +27,37 @@ FetchContent_Declare(
   URL_HASH SHA256=ff1a9053feb509ff9d7729703355541ae9690073a6b1c40eb692c962e0dc1720
   EXCLUDE_FROM_ALL
 )
+# ggml only recognizes a bare architecture name. Given the preset's "x64,version=...", it silently falls back to
+# generic code without AVX2, which makes inference several times slower.
+set(_generator_platform "${CMAKE_GENERATOR_PLATFORM}")
+string(REGEX REPLACE ",.*$" "" CMAKE_GENERATOR_PLATFORM "${CMAKE_GENERATOR_PLATFORM}")
 FetchContent_MakeAvailable(whisper)
+set(CMAKE_GENERATOR_PLATFORM "${_generator_platform}")
 
-# The voice activity model is installed with the plugin data but not stored in git.
-set(VAD_MODEL_FILE "${CMAKE_CURRENT_SOURCE_DIR}/data/models/ggml-silero-v6.2.0.bin")
+get_target_property(_ggml_cpu_options ggml-cpu COMPILE_OPTIONS)
+if("${_ggml_cpu_options}" MATCHES "GGML_CPU_GENERIC")
+  message(FATAL_ERROR "ggml was configured without CPU vector instructions; speech recognition would be too slow.")
+endif()
+
+# The models are installed with the plugin data but not stored in git.
+set(MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data/models")
+set(VAD_MODEL_FILE "${MODEL_DIR}/ggml-silero-v6.2.0.bin")
+set(STT_MODEL_FILE "${MODEL_DIR}/ggml-base-q5_1.bin")
 if(NOT EXISTS "${VAD_MODEL_FILE}")
   file(
     DOWNLOAD
     https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin
     "${VAD_MODEL_FILE}"
     EXPECTED_HASH SHA256=2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987
+  )
+endif()
+if(NOT EXISTS "${STT_MODEL_FILE}")
+  message(STATUS "Downloading the speech recognition model (57 MB)")
+  file(
+    DOWNLOAD
+    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin
+    "${STT_MODEL_FILE}"
+    EXPECTED_HASH SHA256=422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898
   )
 endif()
 
@@ -69,7 +90,13 @@ endif()
 
 target_sources(
   ${CMAKE_PROJECT_NAME}
-  PRIVATE src/plugin-main.c src/subtitle-source.c src/audio-ring.c src/speech-detector.c src/voice-activity.c
+  PRIVATE
+    src/plugin-main.c
+    src/subtitle-source.c
+    src/audio-ring.c
+    src/speech-detector.c
+    src/voice-activity.c
+    src/transcriber.c
 )
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE whisper)
 
@@ -91,4 +118,14 @@ if(ENABLE_TESTS)
   target_include_directories(voice-activity-test PRIVATE src)
   target_link_libraries(voice-activity-test PRIVATE whisper)
   add_test(NAME voice-activity COMMAND voice-activity-test "${VAD_MODEL_FILE}" "${whisper_SOURCE_DIR}/samples/jfk.wav")
+
+  add_executable(transcriber-test tests/transcriber-test.c src/transcriber.c)
+  target_include_directories(transcriber-test PRIVATE src)
+  target_link_libraries(transcriber-test PRIVATE whisper)
+  add_test(NAME transcriber COMMAND transcriber-test "${STT_MODEL_FILE}" "${whisper_SOURCE_DIR}/samples/jfk.wav")
+
+  # Measurement tool, run by hand with a model and a recording: see docs/development.md.
+  add_executable(transcriber-bench tests/transcriber-bench.c src/transcriber.c)
+  target_include_directories(transcriber-bench PRIVATE src)
+  target_link_libraries(transcriber-bench PRIVATE whisper)
 endif()

@@ -12,7 +12,7 @@ Les objectifs produit sont dans [docs/product.md](docs/product.md), l'architectu
 
 Au 2026-10-08, les jalons 0 à 3 sont terminés. Le plugin, issu du modèle officiel `obs-plugintemplate`, compile avec les commandes de [docs/development.md](docs/development.md) et se charge dans OBS 32.2.2. Sa source `livesubtitles_source` propose le choix du microphone et une activation, capte l'audio de la source choisie dans un tampon borné, détecte la parole avec Silero VAD sur un fil dédié et affiche son état (parole ou silence, niveau) à la place des sous-titres. Aucune transcription ni traduction n'existe encore.
 
-**Prochaine étape : Jalon 4 - transcription locale progressive.**
+**Prochaine étape : vérifier la transcription à la voix dans OBS, choisir le modèle par défaut, puis affichage progressif (jalon 4, seconde étape).**
 
 ## Jalons
 
@@ -42,7 +42,9 @@ Ajouter les contrôles minimaux de sélection du microphone et d'activation, pui
 
 **Sortie attendue :** tests de buffer et de transitions silence/parole; vérifier manuellement que seul le micro choisi est traité après activation et que le traitement s'arrête à la désactivation; aucune capture avant activation ni accumulation avec la durée du stream.
 
-### 4. Transcription locale progressive - À faire
+### 4. Transcription locale progressive - En cours
+
+Première étape (transcription d'un énoncé complet à la fin de la parole) : écrite sur la branche `feat/transcription`, tests réussis, mesures de latence dans [docs/development.md](docs/development.md); vérification à la voix dans OBS à faire. Seconde étape (résultats progressifs sans doublons) : à faire.
 
 Intégrer le backend STT choisi derrière une interface. Produire des résultats progressifs si le backend le permet et éviter les doublons entre fenêtres.
 
@@ -74,7 +76,7 @@ Compléter les tests pertinents, vérifier confidentialité, mémoire bornée, n
 
 Tranché au jalon 0 (voir [docs/development.md](docs/development.md)) : version cible d'OBS, langage et système de build, capture audio, VAD, STT, licence du plugin, traduction en une étape pour démarrer.
 
-Encore ouvert : confirmation par mesure de la traduction en une étape (jalon 5), taille de modèle par défaut, mode de livraison des modèles (installateur ou téléchargement annoncé), packaging.
+Encore ouvert : confirmation par mesure de la traduction en une étape (jalon 5), taille de modèle par défaut (`base` provisoire, `small` plus juste mais quatre fois plus lent), mode de livraison des modèles (installateur ou téléchargement annoncé), packaging.
 
 ## Règle de progression
 

@@ -26,6 +26,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "audio-ring.h"
 #include "speech-detector.h"
+#include "transcriber.h"
 #include "voice-activity.h"
 
 /* Text is drawn by a private instance of the built-in OBS text source. */
@@ -41,6 +42,18 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #define CAPTURE_BUFFER_SECONDS 10
 
 #define VAD_MODEL_FILE "models/ggml-silero-v6.2.0.bin"
+#define STT_MODEL_FILE "models/ggml-base-q5_1.bin"
+#define SPOKEN_LANGUAGE "fr"
+#define STT_MAX_THREADS 4
+
+/* Audio kept from just before speech is detected, so that the first syllable
+ * is not cut, and the longest stretch of speech sent to recognition at once. */
+#define PREROLL_SAMPLES (CAPTURE_SAMPLE_RATE * 3 / 10)
+#define UTTERANCE_MAX_SAMPLES (CAPTURE_SAMPLE_RATE * 20)
+
+/* Box the subtitles are laid out in, in pixels. */
+#define TEXT_BOX_WIDTH 1600
+#define TEXT_BOX_HEIGHT 300
 
 #define STATUS_INTERVAL_SECONDS 0.25f
 #define START_RETRY_NS 1000000000ULL
@@ -59,6 +72,7 @@ struct subtitle_source {
 	/* Set once in create and released in destroy; never reassigned. */
 	obs_source_t *text;
 	char *vad_model_path;
+	char *stt_model_path;
 
 	/* Guards the fields below, shared between the settings, graphics,
 	 * audio and worker threads. Never held while calling into another
@@ -70,6 +84,7 @@ struct subtitle_source {
 	float peak;
 	enum pipeline_state state;
 	bool speaking;
+	char *subtitle;
 
 	/* The worker owns capture and speech processing for the whole life of
 	 * the source, so that neither ever runs on the graphics thread. */
@@ -84,6 +99,13 @@ struct subtitle_source {
 	audio_resampler_t *resampler;
 	struct voice_activity *vad;
 	struct speech_detector detector;
+	struct transcriber *transcriber;
+	struct audio_ring preroll;
+	float *utterance;
+	size_t utterance_size;
+	uint32_t utterance_count;
+	uint64_t inference_total_ns;
+	uint64_t inference_max_ns;
 	uint64_t last_start_attempt_ns;
 	bool model_error_logged;
 
@@ -111,6 +133,12 @@ static obs_source_t *create_text_source(void)
 	obs_data_set_string(font, "face", TEXT_FONT_FACE);
 	obs_data_set_int(font, "size", TEXT_FONT_SIZE);
 	obs_data_set_obj(settings, "font", font);
+	obs_data_set_bool(settings, "extents", true);
+	obs_data_set_bool(settings, "extents_wrap", true);
+	obs_data_set_int(settings, "extents_cx", TEXT_BOX_WIDTH);
+	obs_data_set_int(settings, "extents_cy", TEXT_BOX_HEIGHT);
+	obs_data_set_string(settings, "align", "center");
+	obs_data_set_string(settings, "valign", "bottom");
 
 	obs_source_t *text = obs_source_create_private(id, NULL, settings);
 	if (!text)
@@ -191,15 +219,51 @@ static void stop_capture(struct subtitle_source *context)
 	context->resampler = NULL;
 	voice_activity_destroy(context->vad);
 	context->vad = NULL;
+	transcriber_destroy(context->transcriber);
+	context->transcriber = NULL;
+	audio_ring_reset(&context->preroll);
+	context->utterance_size = 0;
 	context->last_start_attempt_ns = 0;
 
 	pthread_mutex_lock(&context->mutex);
 	audio_ring_reset(&context->ring);
 	context->peak = 0.0f;
 	context->speaking = false;
+	char *subtitle = context->subtitle;
+	context->subtitle = NULL;
 	pthread_mutex_unlock(&context->mutex);
+	bfree(subtitle);
 
-	obs_log(LOG_INFO, "audio capture stopped");
+	/* Timings only: what was said is never written to the log. */
+	if (context->utterance_count) {
+		obs_log(LOG_INFO, "audio capture stopped; %u utterance(s), recognition took %.0f ms on average, %.0f ms at most",
+			context->utterance_count,
+			(double)context->inference_total_ns / context->utterance_count / 1000000.0,
+			(double)context->inference_max_ns / 1000000.0);
+	} else {
+		obs_log(LOG_INFO, "audio capture stopped");
+	}
+	context->utterance_count = 0;
+	context->inference_total_ns = 0;
+	context->inference_max_ns = 0;
+}
+
+static int recognition_threads(void)
+{
+	int cores = os_get_physical_cores();
+	int threads = cores / 2;
+	if (threads < 1)
+		threads = 1;
+	return threads > STT_MAX_THREADS ? STT_MAX_THREADS : threads;
+}
+
+static void log_model_error(struct subtitle_source *context, const char *file)
+{
+	if (context->model_error_logged)
+		return;
+
+	obs_log(LOG_ERROR, "failed to load the model '%s'", file);
+	context->model_error_logged = true;
 }
 
 static enum pipeline_state start_capture(struct subtitle_source *context, const char *uuid)
@@ -219,10 +283,26 @@ static enum pipeline_state start_capture(struct subtitle_source *context, const 
 
 	context->vad = voice_activity_create(context->vad_model_path);
 	if (!context->vad) {
-		if (!context->model_error_logged) {
-			obs_log(LOG_ERROR, "failed to load the voice activity model '%s'", VAD_MODEL_FILE);
-			context->model_error_logged = true;
-		}
+		log_model_error(context, VAD_MODEL_FILE);
+		obs_source_release(source);
+		return PIPELINE_MODEL_ERROR;
+	}
+
+	/* Translation to English is done by the recognition model itself. */
+	struct transcriber_params transcriber_params = {
+		.model_path = context->stt_model_path,
+		.language = SPOKEN_LANGUAGE,
+		.translate = true,
+		.threads = recognition_threads(),
+		/* The fitted context is faster on average but showed slow
+		 * outliers; the default is steadier. */
+		.audio_context = 0,
+	};
+	context->transcriber = transcriber_create(&transcriber_params);
+	if (!context->transcriber) {
+		log_model_error(context, STT_MODEL_FILE);
+		voice_activity_destroy(context->vad);
+		context->vad = NULL;
 		obs_source_release(source);
 		return PIPELINE_MODEL_ERROR;
 	}
@@ -243,6 +323,8 @@ static enum pipeline_state start_capture(struct subtitle_source *context, const 
 		obs_log(LOG_ERROR, "failed to create audio resampler");
 		voice_activity_destroy(context->vad);
 		context->vad = NULL;
+		transcriber_destroy(context->transcriber);
+		context->transcriber = NULL;
 		obs_source_release(source);
 		return PIPELINE_SOURCE_UNAVAILABLE;
 	}
@@ -290,7 +372,34 @@ static void reconcile_capture(struct subtitle_source *context)
 	bfree(uuid);
 }
 
-/* Runs the speech model over every complete window waiting in the ring. */
+/* Recognizes the speech collected so far and publishes its text. */
+static void recognize_utterance(struct subtitle_source *context)
+{
+	uint64_t begin = os_gettime_ns();
+	char *text = transcriber_run(context->transcriber, context->utterance, context->utterance_size);
+	uint64_t elapsed = os_gettime_ns() - begin;
+
+	context->utterance_size = 0;
+	context->utterance_count++;
+	context->inference_total_ns += elapsed;
+	if (elapsed > context->inference_max_ns)
+		context->inference_max_ns = elapsed;
+
+	/* The model describes non-speech sounds in brackets or parentheses,
+	 * such as "[BLANK_AUDIO]"; those are not subtitles. */
+	if (text && *text && *text != '[' && *text != '(') {
+		char *subtitle = bstrdup(text);
+
+		pthread_mutex_lock(&context->mutex);
+		char *previous = context->subtitle;
+		context->subtitle = subtitle;
+		pthread_mutex_unlock(&context->mutex);
+		bfree(previous);
+	}
+	transcriber_free_text(text);
+}
+
+/* Runs the speech models over every complete window waiting in the ring. */
 static void process_audio(struct subtitle_source *context)
 {
 	float window[VOICE_ACTIVITY_WINDOW_SAMPLES];
@@ -307,12 +416,32 @@ static void process_audio(struct subtitle_source *context)
 		float probability = 0.0f;
 		if (!voice_activity_process(context->vad, window, &probability))
 			break;
-		speech_detector_update(&context->detector, probability, VOICE_ACTIVITY_WINDOW_MS);
-	}
 
-	pthread_mutex_lock(&context->mutex);
-	context->speaking = speech_detector_is_speaking(&context->detector);
-	pthread_mutex_unlock(&context->mutex);
+		enum speech_event event =
+			speech_detector_update(&context->detector, probability, VOICE_ACTIVITY_WINDOW_MS);
+		bool speaking = speech_detector_is_speaking(&context->detector);
+
+		pthread_mutex_lock(&context->mutex);
+		context->speaking = speaking;
+		pthread_mutex_unlock(&context->mutex);
+
+		if (event == SPEECH_EVENT_START)
+			context->utterance_size = audio_ring_read(&context->preroll, context->utterance, PREROLL_SAMPLES);
+
+		if (!speaking && event != SPEECH_EVENT_END) {
+			audio_ring_write(&context->preroll, window, VOICE_ACTIVITY_WINDOW_SAMPLES);
+			continue;
+		}
+
+		memcpy(context->utterance + context->utterance_size, window, sizeof(window));
+		context->utterance_size += VOICE_ACTIVITY_WINDOW_SAMPLES;
+
+		/* Recognize at the end of speech, or when the buffer is full
+		 * while the user keeps talking. */
+		bool full = context->utterance_size + VOICE_ACTIVITY_WINDOW_SAMPLES > UTTERANCE_MAX_SAMPLES;
+		if (event == SPEECH_EVENT_END || full)
+			recognize_utterance(context);
+	}
 }
 
 static void *worker_thread(void *data)
@@ -345,6 +474,7 @@ static void update_status(struct subtitle_source *context, float seconds)
 	bool has_choice = context->audio_source_uuid && *context->audio_source_uuid;
 	enum pipeline_state state = context->state;
 	bool speaking = context->speaking;
+	char *subtitle = bstrdup(context->subtitle);
 	float peak = context->peak;
 	context->peak = 0.0f;
 	pthread_mutex_unlock(&context->mutex);
@@ -359,6 +489,8 @@ static void update_status(struct subtitle_source *context, float seconds)
 		set_status_text(context, obs_module_text("StatusMicrophoneUnavailable"));
 	} else if (state == PIPELINE_IDLE) {
 		set_status_text(context, obs_module_text("StatusStarting"));
+	} else if (subtitle) {
+		set_status_text(context, subtitle);
 	} else {
 		float db = peak > 0.0f ? 20.0f * log10f(peak) : LEVEL_FLOOR_DB;
 		if (db < LEVEL_FLOOR_DB)
@@ -372,6 +504,8 @@ static void update_status(struct subtitle_source *context, float seconds)
 			 obs_module_text(speaking ? "StatusSpeech" : "StatusSilence"), level);
 		set_status_text(context, status);
 	}
+
+	bfree(subtitle);
 }
 
 static void subtitle_source_update(void *data, obs_data_t *settings)
@@ -404,15 +538,19 @@ static void *subtitle_source_create(obs_data_t *settings, obs_source_t *source)
 		bfree(context);
 		return NULL;
 	}
-	if (!audio_ring_init(&context->ring, CAPTURE_SAMPLE_RATE * CAPTURE_BUFFER_SECONDS)) {
+	if (!audio_ring_init(&context->ring, CAPTURE_SAMPLE_RATE * CAPTURE_BUFFER_SECONDS) ||
+	    !audio_ring_init(&context->preroll, PREROLL_SAMPLES)) {
+		audio_ring_free(&context->ring);
 		os_event_destroy(context->wake);
 		pthread_mutex_destroy(&context->mutex);
 		bfree(context);
 		return NULL;
 	}
 
+	context->utterance = bmalloc(UTTERANCE_MAX_SAMPLES * sizeof(float));
 	context->text = create_text_source();
 	context->vad_model_path = obs_module_file(VAD_MODEL_FILE);
+	context->stt_model_path = obs_module_file(STT_MODEL_FILE);
 	context->status_elapsed = STATUS_INTERVAL_SECONDS;
 	subtitle_source_update(context, settings);
 
@@ -436,9 +574,13 @@ static void subtitle_source_destroy(void *data)
 
 	obs_source_release(context->text);
 	audio_ring_free(&context->ring);
+	audio_ring_free(&context->preroll);
 	os_event_destroy(context->wake);
 	pthread_mutex_destroy(&context->mutex);
+	bfree(context->utterance);
+	bfree(context->subtitle);
 	bfree(context->vad_model_path);
+	bfree(context->stt_model_path);
 	bfree(context->audio_source_uuid);
 	bfree(context->status_text);
 	bfree(context);

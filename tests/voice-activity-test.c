@@ -23,10 +23,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "voice-activity.h"
 
 #include "check.h"
+#include "wav.h"
 
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
 #include <time.h>
 
 struct run_result {
@@ -36,64 +34,6 @@ struct run_result {
 	int ends;
 	bool speaking_at_end;
 };
-
-static uint32_t read_u32(const uint8_t *bytes)
-{
-	return (uint32_t)bytes[0] | (uint32_t)bytes[1] << 8 | (uint32_t)bytes[2] << 16 | (uint32_t)bytes[3] << 24;
-}
-
-/* Returns malloc'd samples in [-1, 1], or NULL if the file is not the
- * expected format. */
-static float *load_wav(const char *path, size_t *count)
-{
-	FILE *file = fopen(path, "rb");
-	if (!file)
-		return NULL;
-
-	fseek(file, 0, SEEK_END);
-	long size = ftell(file);
-	fseek(file, 0, SEEK_SET);
-
-	uint8_t *bytes = size > 12 ? malloc((size_t)size) : NULL;
-	if (!bytes || fread(bytes, 1, (size_t)size, file) != (size_t)size) {
-		free(bytes);
-		fclose(file);
-		return NULL;
-	}
-	fclose(file);
-
-	float *samples = NULL;
-	bool format_ok = false;
-	if (memcmp(bytes, "RIFF", 4) == 0 && memcmp(bytes + 8, "WAVE", 4) == 0) {
-		size_t offset = 12;
-		while (offset + 8 <= (size_t)size) {
-			const uint8_t *chunk = bytes + offset;
-			size_t chunk_size = read_u32(chunk + 4);
-			if (offset + 8 + chunk_size > (size_t)size)
-				break;
-
-			if (memcmp(chunk, "fmt ", 4) == 0 && chunk_size >= 16) {
-				uint16_t format = (uint16_t)(chunk[8] | chunk[9] << 8);
-				uint16_t channels = (uint16_t)(chunk[10] | chunk[11] << 8);
-				uint16_t bits = (uint16_t)(chunk[22] | chunk[23] << 8);
-				format_ok = format == 1 && channels == 1 && bits == 16 &&
-					    read_u32(chunk + 12) == VOICE_ACTIVITY_SAMPLE_RATE;
-			} else if (memcmp(chunk, "data", 4) == 0 && format_ok) {
-				*count = chunk_size / 2;
-				samples = malloc(*count * sizeof(float));
-				for (size_t i = 0; samples && i < *count; i++) {
-					int16_t value = (int16_t)(chunk[8 + i * 2] | chunk[9 + i * 2] << 8);
-					samples[i] = (float)value / 32768.0f;
-				}
-				break;
-			}
-			offset += 8 + chunk_size + (chunk_size & 1);
-		}
-	}
-
-	free(bytes);
-	return samples;
-}
 
 static struct run_result run(struct voice_activity *vad, const float *samples, size_t count)
 {
@@ -168,7 +108,7 @@ int main(int argc, char **argv)
 	/* Reference speech followed by two seconds of silence: speech is
 	 * detected for a good part of the recording and ends in the silence. */
 	size_t speech_count = 0;
-	float *speech = load_wav(argv[2], &speech_count);
+	float *speech = load_wav(argv[2], VOICE_ACTIVITY_SAMPLE_RATE, &speech_count);
 	CHECK(speech != NULL);
 	if (speech) {
 		size_t total = speech_count + silence_count;
