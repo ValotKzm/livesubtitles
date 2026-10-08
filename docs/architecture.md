@@ -1,0 +1,44 @@
+# Architecture cible
+
+Ce document décrit des objectifs d'architecture, pas nécessairement des fonctions déjà implémentées. Vérifie toujours le code et les dépendances présentes avant de modifier ou d'annoncer un comportement.
+
+## Pipeline
+
+```text
+Microphone -> capture audio -> buffer borné -> VAD -> reconnaissance vocale locale
+            -> texte source -> traduction locale -> moteur de sous-titres -> source OBS
+```
+
+Séparer les responsabilités :
+
+- La partie OBS crée/configure la source, affiche les erreurs et rend l'état courant des sous-titres.
+- Le traitement audio/IA gère capture, buffer, VAD, transcription et traduction.
+- Le moteur de sous-titres reste indépendant d'OBS. Il gère texte provisoire/final, expiration, découpage et remplacement des résultats provisoires.
+- La transcription et la traduction restent deux rôles distincts, derrière des interfaces remplaçables. Pour le MVP français vers anglais, un même backend peut remplir les deux en une seule inférence (tâche de traduction de Whisper); l'interface doit permettre de revenir à deux étapes séparées (transcription puis traduction dédiée) sans toucher au reste du pipeline.
+
+## Audio et temps réel
+
+- Garder un buffer circulaire de capacité fixe, initialement de l'ordre de 5 à 10 secondes; écraser les données les plus anciennes plutôt que d'accumuler l'audio.
+- Utiliser le VAD pour éviter les inférences coûteuses pendant le silence.
+- Traiter progressivement avec des fenêtres glissantes ou une stratégie incrémentale; ne pas attendre systématiquement la fin d'un long buffer.
+- Éviter les doublons de transcription, les traductions répétées et les inférences simultanées non maîtrisées.
+- Ne jamais exécuter STT ou traduction sur le thread de rendu OBS. Synchroniser l'état partagé et éviter les data races.
+- Garder bornées les files d'attente et l'historique audio, texte intermédiaire et logs.
+
+## Modèles et intégration
+
+- La reconnaissance et la traduction doivent fonctionner localement par défaut, sans API cloud obligatoire.
+- Garder les backends derrière des interfaces pour pouvoir les remplacer.
+- Un processus worker séparé est une option si cela améliore la stabilité ou isole les dépendances lourdes; ne l'ajoute pas sans besoin démontré.
+- Automatiser la sélection raisonnable du matériel/modèle autant que possible; les réglages avancés ne sont pas destinés à l'interface principale.
+- Vérifier les licences des modèles et dépendances avant toute intégration ou redistribution.
+
+## Intégration OBS et limites d'interaction
+
+- Vérifier la version OBS et le SDK réellement ciblés. Utiliser uniquement les API et callbacks documentés pour cette cible; ne pas supposer qu'une API ou qu'un chemin d'installation est compatible.
+- S'intégrer comme source OBS ajoutée et configurée par l'utilisateur. Ne pas modifier les scènes, profils, réglages audio ou autres sources OBS.
+- Rendu du texte (implémenté, `src/subtitle-source.c`) : la source `livesubtitles_source` possède une instance privée de la source texte intégrée d'OBS (`text_gdiplus`, dernière version via `obs_get_latest_input_type_id`) et la dessine dans son `video_render`. Cette instance est invisible pour l'utilisateur, créée et libérée avec la source. Ses réglages (`color`, `opacity`, `bk_color`, `bk_opacity`, `font`, `outline`) serviront aux options de style sans code de rendu propre. Dépendance : le module `obs-text` livré avec OBS sous Windows.
+- Ne traiter que le microphone explicitement sélectionné, et seulement quand l'utilisateur a activé LiveSubtitles. À l'arrêt ou à la désactivation, arrêter la capture et le traitement. Ne pas capturer l'audio système ou d'autres sources en arrière-plan.
+- Respecter le cycle de vie documenté de la source et du plugin. À la destruction ou à la fermeture, arrêter et joindre les workers, détacher les callbacks et libérer les ressources appartenant au plugin; aucune tâche ne doit continuer à accéder à l'état détruit.
+- Ne jamais bloquer le thread de rendu OBS avec capture, STT, traduction ou attente de worker. Garder les callbacks audio/rendu courts; n'appeler les API OBS depuis un worker que si la documentation de la version cible autorise explicitement cet usage.
+- Garder l'interface simple et ne pas lancer de capture, téléchargement de modèle ou autre activité coûteuse avant une action explicite de l'utilisateur, sauf comportement clairement annoncé et nécessaire au fonctionnement.
