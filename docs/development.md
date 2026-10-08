@@ -79,7 +79,21 @@ Constat : `base` transcrit le français presque sans faute sur les neuf phrases,
 
 - Total estimé pour l'option B : 0,55 à 0,9 s par phrase, contre 1,35 à 2,2 s pour `small` seul, à qualité au moins égale sur cet échantillon.
 - Limites de cette mesure : les erreurs de transcription se propagent (« est bienvenue » donne « is welcome »); la roue Python utilise Intel MKL, alors qu'un build embarqué dans le plugin utiliserait sans doute un autre backend, plus lent; les conversions testées viennent de tiers et ne serviraient pas telles quelles en distribution (conversion à refaire depuis le modèle Helsinki-NLP, Apache-2.0); l'audio est de la synthèse vocale.
-- Coût d'intégration : CTranslate2 (MIT) et SentencePiece (Apache-2.0) à compiler et lier, un modèle de plus à livrer, une étape de traduction en C++. Non décidé.
+- Coût d'intégration : CTranslate2 (MIT) et SentencePiece (Apache-2.0) à compiler et lier, un modèle de plus à livrer, une étape de traduction en C++.
+- **Décision du 2026-10-08 :** l'option B devient nécessaire, car l'objectif produit est désormais de traduire vers d'autres langues que l'anglais (voir `docs/product.md`), ce que Whisper ne fait pas. L'option A (`small` en une étape) reste en place jusqu'à son remplacement.
+
+### Un modèle de traduction multilingue ou un par paire de langues (mesuré le 2026-10-08)
+
+Même protocole que ci-dessus (Python `ctranslate2`, int8, 4 threads, faisceau de 4).
+
+| Modèle | Licence | Taille | Temps par phrase | Qualité observée |
+|---|---|---|---|---|
+| M2M-100 418M, un seul modèle pour une centaine de langues (conversion `jncraton/m2m100_418M-ct2-int8`) | MIT | 491 Mo | 0,12 à 0,49 s | Moyenne : « stream » traduit par « courant », « corriente », « потоке »; « manette » par « handheld »; « Feel free to » par « Se sentir libre de »; une phrase omise vers le russe. |
+| OPUS-MT fr-en, un modèle par paire | Apache-2.0 | 150 Mo en float, environ quatre fois moins en int8 d'après la documentation de CTranslate2 | 0,02 à 0,25 s selon les exécutions | Bonne (voir plus haut). |
+
+- NLLB-200 est écarté : licence CC-BY-NC 4.0, incompatible avec des streams monétisés.
+- Orientation retenue, à confirmer à l'intégration : un seul modèle de reconnaissance (Whisper, multilingue) et un petit modèle de traduction par paire de langues, seul celui de la paire choisie étant présent sur la machine. Il traduit mieux, plus vite et pèse moins qu'un modèle multilingue unique. L'interface de traduction doit rester indépendante du modèle pour pouvoir en changer.
+- Non mesuré : les paires autres que français vers anglais avec OPUS-MT (le téléchargement des conversions a échoué), la qualité en russe et en espagnol jugée par un locuteur, et la transcription Whisper de ces langues.
 
 ## Tests et performance
 
