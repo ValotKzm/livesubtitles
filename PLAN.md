@@ -12,7 +12,7 @@ Les objectifs produit sont dans [docs/product.md](docs/product.md), l'architectu
 
 Au 2026-10-08, les jalons 0 à 3 sont terminés. Le plugin, issu du modèle officiel `obs-plugintemplate`, compile avec les commandes de [docs/development.md](docs/development.md) et se charge dans OBS 32.2.2. Sa source `livesubtitles_source` propose le choix du microphone et une activation, capte l'audio de la source choisie dans un tampon borné, détecte la parole avec Silero VAD sur un fil dédié et affiche son état (parole ou silence, niveau) à la place des sous-titres. Aucune transcription ni traduction n'existe encore.
 
-**Prochaine étape : vérifier la transcription à la voix dans OBS, choisir le modèle par défaut, puis affichage progressif (jalon 4, seconde étape).**
+**Prochaine étape : décider de l'option B (transcription française puis traduction dédiée, mesurée plus rapide à qualité égale), puis affichage progressif (jalon 4, seconde étape).**
 
 ## Jalons
 
@@ -44,7 +44,7 @@ Ajouter les contrôles minimaux de sélection du microphone et d'activation, pui
 
 ### 4. Transcription locale progressive - En cours
 
-Première étape (transcription d'un énoncé complet à la fin de la parole) : écrite sur la branche `feat/transcription`, tests réussis, mesures de latence dans [docs/development.md](docs/development.md); vérification à la voix dans OBS à faire. Seconde étape (résultats progressifs sans doublons) : à faire.
+Première étape (transcription d'un énoncé complet à la fin de la parole) : terminée le 2026-10-08, vérifiée à la voix dans OBS; mesures de latence dans [docs/development.md](docs/development.md). Seconde étape (résultats progressifs sans doublons) : à faire, après décision sur l'option B.
 
 Intégrer le backend STT choisi derrière une interface. Produire des résultats progressifs si le backend le permet et éviter les doublons entre fenêtres.
 
@@ -52,7 +52,7 @@ Intégrer le backend STT choisi derrière une interface. Produire des résultats
 
 ### 5. Traduction et sous-titres - À faire
 
-Intégrer la traduction locale français vers anglais et un moteur de sous-titres indépendant d'OBS. Gérer le remplacement provisoire/final, l'expiration et le rendu du résultat dans la source.
+Intégrer la traduction locale français vers anglais et un moteur de sous-titres indépendant d'OBS. Gérer le remplacement provisoire/final, l'expiration avec effacement progressif et le rendu du résultat dans la source.
 
 **Sortie attendue :** parcours audio vers sous-titre vérifié de bout en bout; tests ciblés du moteur de sous-titres.
 
@@ -76,7 +76,7 @@ Compléter les tests pertinents, vérifier confidentialité, mémoire bornée, n
 
 Tranché au jalon 0 (voir [docs/development.md](docs/development.md)) : version cible d'OBS, langage et système de build, capture audio, VAD, STT, licence du plugin, traduction en une étape pour démarrer.
 
-Encore ouvert : confirmation par mesure de la traduction en une étape (jalon 5), taille de modèle par défaut (`base` provisoire, `small` plus juste mais quatre fois plus lent), mode de livraison des modèles (installateur ou téléchargement annoncé), packaging.
+Encore ouvert : confirmation par mesure de la traduction en une étape (jalon 5), passage éventuel à l'option B (mesurée, non décidée; `small` en une étape en attendant), mode de livraison des modèles (installateur ou téléchargement annoncé), packaging.
 
 ## Règle de progression
 

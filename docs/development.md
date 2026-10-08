@@ -65,7 +65,21 @@ Conditions : i7-13700KF, CPU seul, 4 threads, tâche `translate` français vers 
 - Le temps dépend peu de la durée de la phrase : l'encodeur traite toujours une fenêtre de 30 secondes.
 - La quantification q5_1 divise la taille par 2,5 sans effet mesurable sur le temps ni sur le texte.
 - **Contexte audio réduit (`audio_ctx`) :** ajusté à la durée de la phrase, il ramène `base` à 0,17-0,45 s, mais de façon instable. Trop serré, il fait répéter ou inventer du texte et relance le décodage pendant plusieurs secondes (jusqu'à 6,4 s constatés); même avec une marge large (durée + 5 s, plancher 10 s), une phrase a pris 1,6 s sur une des trois exécutions. Le plugin utilise donc le contexte complet. `TRANSCRIBER_FIT_AUDIO_CONTEXT` reste disponible dans `src/transcriber.c` pour l'affichage progressif, à ne retenir qu'après de nouvelles mesures.
-- **Choix provisoire :** `ggml-base-q5_1`, téléchargé à la configuration CMake (SHA-256 vérifié) et installé avec le plugin. Le compromis avec `small` (quatre fois plus lent, bien plus juste) reste à trancher après essai à la voix, et à remesurer sur une machine plus modeste et pendant un jeu.
+- **Essai à la voix dans OBS (2026-10-08) :** avec `base`, délai jugé bon (0,53 s en moyenne sur 18 énoncés d'après le journal) mais traductions trop souvent hors sujet; avec `small`, traductions jugées nettement meilleures et délai acceptable.
+- **Choix actuel :** `ggml-small-q5_1`, téléchargé à la configuration CMake (SHA-256 vérifié) et installé avec le plugin, avec jusqu'à 8 threads (la moitié des cœurs physiques). Temps de `small` selon les threads, sur les mêmes phrases : 2,0 à 2,2 s avec 4, 1,5 à 1,7 s avec 6, 1,35 à 1,55 s avec 8, 1,1 à 1,4 s avec 12. À remesurer sur une machine plus modeste et pendant un jeu.
+
+### Option B mesurée : transcription française puis traduction dédiée (2026-10-08)
+
+Constat : `base` transcrit le français presque sans faute sur les neuf phrases, en 0,5 à 0,65 s; c'est sa traduction intégrée qui produit les contresens. Mesure de la traduction seule, hors plugin, avec la bibliothèque Python `ctranslate2` (int8, 4 threads, faisceau de 4) sur le texte français sorti de `base` :
+
+| Modèle de traduction | Taille mesurée | Temps par phrase | Qualité observée |
+|---|---|---|---|
+| OPUS-MT fr-en (conversion `gaudi/opus-mt-fr-en-ctranslate2`) | 154 Mo | 0,03 à 0,25 s | Au niveau de `small` ou mieux : « controller », « I lower the shadows », « a little five minutes' break ». |
+| OPUS-MT tc-big fr-en (conversion `craftwise/ct2-opus-mt-tc-big-fr-en-int8`) | 238 Mo | 0,06 à 0,48 s | Comparable, formulations un peu plus soignées. |
+
+- Total estimé pour l'option B : 0,55 à 0,9 s par phrase, contre 1,35 à 2,2 s pour `small` seul, à qualité au moins égale sur cet échantillon.
+- Limites de cette mesure : les erreurs de transcription se propagent (« est bienvenue » donne « is welcome »); la roue Python utilise Intel MKL, alors qu'un build embarqué dans le plugin utiliserait sans doute un autre backend, plus lent; les conversions testées viennent de tiers et ne serviraient pas telles quelles en distribution (conversion à refaire depuis le modèle Helsinki-NLP, Apache-2.0); l'audio est de la synthèse vocale.
+- Coût d'intégration : CTranslate2 (MIT) et SentencePiece (Apache-2.0) à compiler et lier, un modèle de plus à livrer, une étape de traduction en C++. Non décidé.
 
 ## Tests et performance
 

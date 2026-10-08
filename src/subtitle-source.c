@@ -42,9 +42,9 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #define CAPTURE_BUFFER_SECONDS 10
 
 #define VAD_MODEL_FILE "models/ggml-silero-v6.2.0.bin"
-#define STT_MODEL_FILE "models/ggml-base-q5_1.bin"
+#define STT_MODEL_FILE "models/ggml-small-q5_1.bin"
 #define SPOKEN_LANGUAGE "fr"
-#define STT_MAX_THREADS 4
+#define STT_MAX_THREADS 8
 
 /* Audio kept from just before speech is detected, so that the first syllable
  * is not cut, and the longest stretch of speech sent to recognition at once. */

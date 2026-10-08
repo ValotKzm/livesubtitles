@@ -42,7 +42,7 @@ endif()
 # The models are installed with the plugin data but not stored in git.
 set(MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data/models")
 set(VAD_MODEL_FILE "${MODEL_DIR}/ggml-silero-v6.2.0.bin")
-set(STT_MODEL_FILE "${MODEL_DIR}/ggml-base-q5_1.bin")
+set(STT_MODEL_FILE "${MODEL_DIR}/ggml-small-q5_1.bin")
 if(NOT EXISTS "${VAD_MODEL_FILE}")
   file(
     DOWNLOAD
@@ -52,12 +52,12 @@ if(NOT EXISTS "${VAD_MODEL_FILE}")
   )
 endif()
 if(NOT EXISTS "${STT_MODEL_FILE}")
-  message(STATUS "Downloading the speech recognition model (57 MB)")
+  message(STATUS "Downloading the speech recognition model (181 MB)")
   file(
     DOWNLOAD
-    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin
+    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin
     "${STT_MODEL_FILE}"
-    EXPECTED_HASH SHA256=422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898
+    EXPECTED_HASH SHA256=ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb
   )
 endif()
 
