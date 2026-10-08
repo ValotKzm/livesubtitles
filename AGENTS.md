@@ -2,7 +2,7 @@
 
 ## Objectif et priorités
 
-LiveSubtitles est un plugin OBS de sous-titrage traduit en temps réel. La cible initiale est Windows 10/11 et le premier couple de langues est français vers anglais. Le produit vise les streamers non techniques, avec un fonctionnement gratuit, local par défaut et sans compte, clé API ou serveur obligatoire.
+LiveSubtitles est un plugin OBS de sous-titrage traduit en temps réel. La cible initiale est Windows 10/11 et le premier couple de langues est français vers anglais; à terme, la langue parlée et la langue des sous-titres doivent pouvoir être choisies librement. Le produit vise les streamers non techniques, avec un fonctionnement gratuit, local par défaut et sans compte, clé API ou serveur obligatoire.
 
 Priorités, dans l'ordre : simplicité, stabilité, latence, qualité, fonctionnalités. Favorise toujours la solution qui permet à un streamer de commencer à utiliser le logiciel en quelques minutes. Reporte les options avancées et le périmètre non essentiel.
 
@@ -14,6 +14,9 @@ Priorités, dans l'ordre : simplicité, stabilité, latence, qualité, fonctionn
 - Après chaque changement pertinent, exécute d'abord la vérification ciblée disponible, puis élargis aux tests ou à la compilation si le risque le justifie. Rapporte exactement ce qui a été vérifié.
 - N'ajoute pas de dépendance ou d'abstraction sans besoin démontré. Vérifie licences, compatibilité et impact de distribution avant intégration.
 - Ne crée pas de commit sans demande explicite.
+- Travaille sur une branche par étape (`feat/...`, `fix/...`, `docs/...`), fusionnée dans `main` avec un commit de merge une fois l'étape vérifiée, puis supprimée en local et sur le dépôt distant.
+- Les messages de commit et de merge ne mentionnent aucun outil d'IA et ne portent aucune ligne de co-auteur automatique.
+- L'utilisateur vérifie lui-même le comportement dans OBS : installe le plugin, décris l'essai à faire, puis lis le journal d'OBS une fois OBS fermé.
 
 ## Confidentialité et stabilité
 
