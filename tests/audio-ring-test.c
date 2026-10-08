@@ -18,18 +18,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "audio-ring.h"
 
-#include <stdio.h>
-
-static int failures;
-
-/* assert() is compiled out in release configurations, so check by hand. */
-#define CHECK(cond) \
-	do { \
-		if (!(cond)) { \
-			printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
-			failures++; \
-		} \
-	} while (0)
+#include "check.h"
 
 static void fill(float *samples, size_t count, float first)
 {
@@ -168,10 +157,5 @@ int main(void)
 	test_size_stays_bounded();
 	test_reset();
 
-	if (failures) {
-		printf("%d check(s) failed\n", failures);
-		return 1;
-	}
-	printf("all audio ring checks passed\n");
-	return 0;
+	return check_result("audio ring");
 }

@@ -25,6 +25,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <math.h>
 
 #include "audio-ring.h"
+#include "speech-detector.h"
+#include "voice-activity.h"
 
 /* Text is drawn by a private instance of the built-in OBS text source. */
 #define TEXT_SOURCE_ID "text_gdiplus"
@@ -38,29 +40,54 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #define CAPTURE_SAMPLE_RATE 16000
 #define CAPTURE_BUFFER_SECONDS 10
 
+#define VAD_MODEL_FILE "models/ggml-silero-v6.2.0.bin"
+
 #define STATUS_INTERVAL_SECONDS 0.25f
-#define ATTACH_RETRY_SECONDS 1.0f
+#define START_RETRY_NS 1000000000ULL
+#define WORKER_ACTIVE_WAIT_MS 30
+#define WORKER_IDLE_WAIT_MS 250
 #define LEVEL_FLOOR_DB -60.0f
+
+enum pipeline_state {
+	PIPELINE_IDLE,
+	PIPELINE_SOURCE_UNAVAILABLE,
+	PIPELINE_MODEL_ERROR,
+	PIPELINE_LISTENING,
+};
 
 struct subtitle_source {
 	/* Set once in create and released in destroy; never reassigned. */
 	obs_source_t *text;
+	char *vad_model_path;
 
-	/* Guards the fields below, shared between the settings, graphics and
-	 * audio threads. Never held while calling into another source. */
+	/* Guards the fields below, shared between the settings, graphics,
+	 * audio and worker threads. Never held while calling into another
+	 * source or into the speech model. */
 	pthread_mutex_t mutex;
 	bool enabled;
 	char *audio_source_uuid;
 	struct audio_ring ring;
 	float peak;
+	enum pipeline_state state;
+	bool speaking;
 
-	/* Capture state. Changed only by video_tick and destroy, which never
-	 * run concurrently; the resampler is otherwise used by the audio
-	 * callback alone, between add and remove of that callback. */
+	/* The worker owns capture and speech processing for the whole life of
+	 * the source, so that neither ever runs on the graphics thread. */
+	pthread_t worker;
+	bool worker_started;
+	os_event_t *wake;
+	volatile bool stopping;
+
+	/* Used by the worker only, except the resampler, which the audio
+	 * callback alone uses between add and remove of that callback. */
 	obs_source_t *capture_source;
 	audio_resampler_t *resampler;
-	float retry_elapsed;
+	struct voice_activity *vad;
+	struct speech_detector detector;
+	uint64_t last_start_attempt_ns;
+	bool model_error_logged;
 
+	/* Used by the graphics thread only. */
 	float status_elapsed;
 	char *status_text;
 };
@@ -142,6 +169,13 @@ static void audio_capture_callback(void *param, obs_source_t *source, const stru
 	pthread_mutex_unlock(&context->mutex);
 }
 
+static void set_pipeline_state(struct subtitle_source *context, enum pipeline_state state)
+{
+	pthread_mutex_lock(&context->mutex);
+	context->state = state;
+	pthread_mutex_unlock(&context->mutex);
+}
+
 static void stop_capture(struct subtitle_source *context)
 {
 	if (!context->capture_source)
@@ -155,29 +189,44 @@ static void stop_capture(struct subtitle_source *context)
 
 	audio_resampler_destroy(context->resampler);
 	context->resampler = NULL;
+	voice_activity_destroy(context->vad);
+	context->vad = NULL;
+	context->last_start_attempt_ns = 0;
 
 	pthread_mutex_lock(&context->mutex);
 	audio_ring_reset(&context->ring);
 	context->peak = 0.0f;
+	context->speaking = false;
 	pthread_mutex_unlock(&context->mutex);
 
 	obs_log(LOG_INFO, "audio capture stopped");
 }
 
-static bool start_capture(struct subtitle_source *context, const char *uuid)
+static enum pipeline_state start_capture(struct subtitle_source *context, const char *uuid)
 {
 	struct obs_audio_info oai;
 	if (!obs_get_audio_info(&oai))
-		return false;
+		return PIPELINE_SOURCE_UNAVAILABLE;
 
 	obs_source_t *source = obs_get_source_by_uuid(uuid);
 	if (!source)
-		return false;
+		return PIPELINE_SOURCE_UNAVAILABLE;
 
 	if (obs_source_removed(source) || !(obs_source_get_output_flags(source) & OBS_SOURCE_AUDIO)) {
 		obs_source_release(source);
-		return false;
+		return PIPELINE_SOURCE_UNAVAILABLE;
 	}
+
+	context->vad = voice_activity_create(context->vad_model_path);
+	if (!context->vad) {
+		if (!context->model_error_logged) {
+			obs_log(LOG_ERROR, "failed to load the voice activity model '%s'", VAD_MODEL_FILE);
+			context->model_error_logged = true;
+		}
+		obs_source_release(source);
+		return PIPELINE_MODEL_ERROR;
+	}
+	context->model_error_logged = false;
 
 	struct resample_info src = {
 		.samples_per_sec = oai.samples_per_sec,
@@ -192,20 +241,25 @@ static bool start_capture(struct subtitle_source *context, const char *uuid)
 	context->resampler = audio_resampler_create(&dst, &src);
 	if (!context->resampler) {
 		obs_log(LOG_ERROR, "failed to create audio resampler");
+		voice_activity_destroy(context->vad);
+		context->vad = NULL;
 		obs_source_release(source);
-		return false;
+		return PIPELINE_SOURCE_UNAVAILABLE;
 	}
 
+	struct speech_detector_params params = speech_detector_default_params();
+	speech_detector_init(&context->detector, &params);
+
 	/* The reference keeps the captured source alive while the callback is
-	 * registered; video_tick drops it when the user removes that source. */
+	 * registered; the worker drops it when the user removes that source. */
 	context->capture_source = source;
 	obs_source_add_audio_capture_callback(source, audio_capture_callback, context);
 	obs_log(LOG_INFO, "audio capture started");
-	return true;
+	return PIPELINE_LISTENING;
 }
 
 /* Brings the capture state in line with the settings. */
-static void reconcile_capture(struct subtitle_source *context, float seconds)
+static void reconcile_capture(struct subtitle_source *context)
 {
 	pthread_mutex_lock(&context->mutex);
 	bool enabled = context->enabled;
@@ -220,19 +274,63 @@ static void reconcile_capture(struct subtitle_source *context, float seconds)
 			stop_capture(context);
 	}
 
-	if (wanted && !context->capture_source) {
+	if (!wanted) {
+		context->last_start_attempt_ns = 0;
+		set_pipeline_state(context, PIPELINE_IDLE);
+	} else if (!context->capture_source) {
 		/* The chosen source may not exist yet while a scene collection
 		 * loads, so keep trying at a low rate. */
-		context->retry_elapsed += seconds;
-		if (context->retry_elapsed >= ATTACH_RETRY_SECONDS) {
-			context->retry_elapsed = 0.0f;
-			start_capture(context, uuid);
+		uint64_t now = os_gettime_ns();
+		if (!context->last_start_attempt_ns || now - context->last_start_attempt_ns >= START_RETRY_NS) {
+			context->last_start_attempt_ns = now;
+			set_pipeline_state(context, start_capture(context, uuid));
 		}
-	} else {
-		context->retry_elapsed = ATTACH_RETRY_SECONDS;
 	}
 
 	bfree(uuid);
+}
+
+/* Runs the speech model over every complete window waiting in the ring. */
+static void process_audio(struct subtitle_source *context)
+{
+	float window[VOICE_ACTIVITY_WINDOW_SAMPLES];
+
+	while (!os_atomic_load_bool(&context->stopping)) {
+		pthread_mutex_lock(&context->mutex);
+		bool available = audio_ring_size(&context->ring) >= VOICE_ACTIVITY_WINDOW_SAMPLES;
+		if (available)
+			audio_ring_read(&context->ring, window, VOICE_ACTIVITY_WINDOW_SAMPLES);
+		pthread_mutex_unlock(&context->mutex);
+		if (!available)
+			break;
+
+		float probability = 0.0f;
+		if (!voice_activity_process(context->vad, window, &probability))
+			break;
+		speech_detector_update(&context->detector, probability, VOICE_ACTIVITY_WINDOW_MS);
+	}
+
+	pthread_mutex_lock(&context->mutex);
+	context->speaking = speech_detector_is_speaking(&context->detector);
+	pthread_mutex_unlock(&context->mutex);
+}
+
+static void *worker_thread(void *data)
+{
+	struct subtitle_source *context = data;
+	os_set_thread_name("livesubtitles worker");
+
+	while (!os_atomic_load_bool(&context->stopping)) {
+		reconcile_capture(context);
+		if (context->capture_source)
+			process_audio(context);
+
+		os_event_timedwait(context->wake,
+				   context->capture_source ? WORKER_ACTIVE_WAIT_MS : WORKER_IDLE_WAIT_MS);
+	}
+
+	stop_capture(context);
+	return NULL;
 }
 
 static void update_status(struct subtitle_source *context, float seconds)
@@ -245,6 +343,8 @@ static void update_status(struct subtitle_source *context, float seconds)
 	pthread_mutex_lock(&context->mutex);
 	bool enabled = context->enabled;
 	bool has_choice = context->audio_source_uuid && *context->audio_source_uuid;
+	enum pipeline_state state = context->state;
+	bool speaking = context->speaking;
 	float peak = context->peak;
 	context->peak = 0.0f;
 	pthread_mutex_unlock(&context->mutex);
@@ -253,8 +353,12 @@ static void update_status(struct subtitle_source *context, float seconds)
 		set_status_text(context, obs_module_text("StatusDisabled"));
 	} else if (!has_choice) {
 		set_status_text(context, obs_module_text("StatusNoMicrophone"));
-	} else if (!context->capture_source) {
+	} else if (state == PIPELINE_MODEL_ERROR) {
+		set_status_text(context, obs_module_text("StatusModelError"));
+	} else if (state == PIPELINE_SOURCE_UNAVAILABLE) {
 		set_status_text(context, obs_module_text("StatusMicrophoneUnavailable"));
+	} else if (state == PIPELINE_IDLE) {
+		set_status_text(context, obs_module_text("StatusStarting"));
 	} else {
 		float db = peak > 0.0f ? 20.0f * log10f(peak) : LEVEL_FLOOR_DB;
 		if (db < LEVEL_FLOOR_DB)
@@ -264,7 +368,8 @@ static void update_status(struct subtitle_source *context, float seconds)
 		int level = (int)((db - LEVEL_FLOOR_DB) * 100.0f / -LEVEL_FLOOR_DB);
 
 		char status[128];
-		snprintf(status, sizeof(status), "%s %d %%", obs_module_text("StatusListening"), level);
+		snprintf(status, sizeof(status), "%s %d %%",
+			 obs_module_text(speaking ? "StatusSpeech" : "StatusSilence"), level);
 		set_status_text(context, status);
 	}
 }
@@ -282,6 +387,7 @@ static void subtitle_source_update(void *data, obs_data_t *settings)
 	pthread_mutex_unlock(&context->mutex);
 
 	bfree(previous);
+	os_event_signal(context->wake);
 }
 
 static void *subtitle_source_create(obs_data_t *settings, obs_source_t *source)
@@ -293,16 +399,27 @@ static void *subtitle_source_create(obs_data_t *settings, obs_source_t *source)
 		bfree(context);
 		return NULL;
 	}
+	if (os_event_init(&context->wake, OS_EVENT_TYPE_AUTO) != 0) {
+		pthread_mutex_destroy(&context->mutex);
+		bfree(context);
+		return NULL;
+	}
 	if (!audio_ring_init(&context->ring, CAPTURE_SAMPLE_RATE * CAPTURE_BUFFER_SECONDS)) {
+		os_event_destroy(context->wake);
 		pthread_mutex_destroy(&context->mutex);
 		bfree(context);
 		return NULL;
 	}
 
 	context->text = create_text_source();
-	context->retry_elapsed = ATTACH_RETRY_SECONDS;
+	context->vad_model_path = obs_module_file(VAD_MODEL_FILE);
 	context->status_elapsed = STATUS_INTERVAL_SECONDS;
 	subtitle_source_update(context, settings);
+
+	if (pthread_create(&context->worker, NULL, worker_thread, context) == 0)
+		context->worker_started = true;
+	else
+		obs_log(LOG_ERROR, "failed to start the worker thread");
 	return context;
 }
 
@@ -310,10 +427,18 @@ static void subtitle_source_destroy(void *data)
 {
 	struct subtitle_source *context = data;
 
-	stop_capture(context);
+	/* The worker stops capture itself before it exits. */
+	if (context->worker_started) {
+		os_atomic_set_bool(&context->stopping, true);
+		os_event_signal(context->wake);
+		pthread_join(context->worker, NULL);
+	}
+
 	obs_source_release(context->text);
 	audio_ring_free(&context->ring);
+	os_event_destroy(context->wake);
 	pthread_mutex_destroy(&context->mutex);
+	bfree(context->vad_model_path);
 	bfree(context->audio_source_uuid);
 	bfree(context->status_text);
 	bfree(context);
@@ -323,7 +448,6 @@ static void subtitle_source_video_tick(void *data, float seconds)
 {
 	struct subtitle_source *context = data;
 
-	reconcile_capture(context, seconds);
 	update_status(context, seconds);
 }
 

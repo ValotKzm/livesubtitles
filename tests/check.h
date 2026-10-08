@@ -16,30 +16,27 @@ You should have received a copy of the GNU General Public License along
 with this program. If not, see <https://www.gnu.org/licenses/>
 */
 
-#include <obs-module.h>
-#include <plugin-support.h>
+#pragma once
 
-#include "voice-activity.h"
+#include <stdio.h>
 
-OBS_DECLARE_MODULE()
-OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
+static int failures;
 
-extern struct obs_source_info subtitle_source_info;
+/* assert() is compiled out in release configurations, so check by hand. */
+#define CHECK(cond) \
+	do { \
+		if (!(cond)) { \
+			printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
+			failures++; \
+		} \
+	} while (0)
 
-static void log_speech_library_message(bool is_error, const char *message)
+static inline int check_result(const char *name)
 {
-	obs_log(is_error ? LOG_ERROR : LOG_WARNING, "%s", message);
-}
-
-bool obs_module_load(void)
-{
-	voice_activity_set_log(log_speech_library_message);
-	obs_register_source(&subtitle_source_info);
-	obs_log(LOG_INFO, "plugin loaded successfully (version %s)", PLUGIN_VERSION);
-	return true;
-}
-
-void obs_module_unload(void)
-{
-	obs_log(LOG_INFO, "plugin unloaded");
+	if (failures) {
+		printf("%s: %d check(s) failed\n", name, failures);
+		return 1;
+	}
+	printf("%s: all checks passed\n", name);
+	return 0;
 }
