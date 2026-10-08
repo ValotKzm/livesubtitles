@@ -12,9 +12,9 @@ Les objectifs produit sont dans [docs/product.md](docs/product.md), l'architectu
 
 Au 2026-10-08, le dépôt contient le squelette issu du modèle officiel `obs-plugintemplate` : un module OBS vide qui journalise son chargement. Il compile avec les commandes de [docs/development.md](docs/development.md) et se charge puis se décharge proprement dans OBS 32.2.2 (vérifié dans le journal d'OBS). Aucun commit, aucun test, aucune brique audio ou IA.
 
-La source `livesubtitles_source` affiche un texte de test statique. Vérifié manuellement dans OBS 32.2.2 : ajout, affichage, suppression, déchargement du plugin et fermeture d'OBS sans erreur du plugin ni fuite mémoire (`Number of memory leaks: 0`). La source n'a pas encore de propriétés.
+La source `livesubtitles_source` affiche un texte de test statique. Vérifié manuellement dans OBS 32.2.2 : ajout, affichage, suppression, déchargement du plugin et fermeture d'OBS sans erreur du plugin ni fuite mémoire (`Number of memory leaks: 0`). Depuis, la source a des propriétés (microphone, activation), capte l'audio de la source choisie dans un tampon borné et affiche son état à la place du texte de test; cette partie compile et ses tests unitaires passent, mais n'est pas encore vérifiée dans OBS.
 
-**Prochaine étape : Jalon 3 - audio borné et détection de parole.**
+**Prochaine étape : vérifier la capture dans OBS, puis seconde partie du jalon 3 (whisper.cpp et VAD).**
 
 ## Jalons
 
@@ -36,7 +36,9 @@ Enregistrer une source LiveSubtitles avec les API documentées de la version OBS
 
 **Sortie attendue :** source ajoutable dans OBS et texte visible; aucun changement collatéral dans OBS; vérifications ciblées réussies.
 
-### 3. Audio borné et détection de parole - À faire
+### 3. Audio borné et détection de parole - En cours
+
+Première partie (réglages, capture, tampon borné) : écrite, tests du tampon réussis, vérification manuelle dans OBS à faire. Seconde partie (whisper.cpp et VAD) : à faire.
 
 Ajouter les contrôles minimaux de sélection du microphone et d'activation, puis la capture du microphone choisi uniquement après activation, un buffer de capacité fixe et le VAD. À la désactivation, arrêter la capture et le traitement. Ne pas capturer l'audio système ni d'autres sources en arrière-plan. Garder les files et l'état partagés bornés et synchronisés.
 

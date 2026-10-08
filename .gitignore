@@ -6,6 +6,7 @@
 !/data
 !/src
 !/docs
+!/tests
 !.clang-format
 !.gersemirc
 !.gitignore

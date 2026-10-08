@@ -34,6 +34,14 @@ if(ENABLE_QT)
   )
 endif()
 
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.c src/subtitle-source.c)
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.c src/subtitle-source.c src/audio-ring.c)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
+
+option(ENABLE_TESTS "Build unit tests" ON)
+if(ENABLE_TESTS)
+  enable_testing()
+  add_executable(audio-ring-test tests/audio-ring-test.c src/audio-ring.c)
+  target_include_directories(audio-ring-test PRIVATE src)
+  add_test(NAME audio-ring COMMAND audio-ring-test)
+endif()

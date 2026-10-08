@@ -27,6 +27,7 @@ Lors d'un choix technique important, consigner la décision, sa raison, les alte
   - `cmake --preset windows-x64` : télécharge les sources d'OBS et les dépendances dans `.deps/` (hashes vérifiés par `buildspec.json`) et génère `build_x64/`.
   - `cmake --build --preset windows-x64` : produit `build_x64/RelWithDebInfo/livesubtitles.dll`.
   - `cmake --install build_x64 --config RelWithDebInfo` : copie le plugin dans `%ALLUSERSPROFILE%\obs-studio\plugins\livesubtitles\` (préfixe par défaut du modèle, sans droits administrateur). Fermer OBS avant. Pour retirer le plugin, supprimer ce seul dossier `livesubtitles`.
+  - `ctest --test-dir build_x64 -C RelWithDebInfo --output-on-failure` : exécute les tests unitaires (`tests/`, indépendants d'OBS; option CMake `ENABLE_TESTS`). `ctest.exe` est dans le même dossier que le CMake de VS 2022.
 - **Vérification du chargement :** lancer OBS, puis chercher `[livesubtitles]` dans le dernier fichier de `%APPDATA%\obs-studio\logs`; la ligne `plugin loaded successfully` doit y figurer.
 - **Licence du plugin :** GPL-2.0-or-later, celle du modèle officiel et de libobs.
 - **Alternative écartée :** cibler libobs 32.2. Son `CMakePresets.json` impose `Visual Studio 18 2026` et le SDK 10.0.26100, le modèle officiel ne le prend pas encore en charge, et le plugin ne se chargerait plus dans OBS 31.x. À réévaluer si une API propre à OBS 32 devient nécessaire.
