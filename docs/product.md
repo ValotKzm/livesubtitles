@@ -27,6 +27,8 @@ Le comportement doit rester sous le contrôle de l'utilisateur : le traitement d
 
 Demande du 2026-10-08, à implémenter après l'affichage du texte de test : permettre de choisir la couleur du texte et d'afficher un fond derrière les sous-titres, de couleur et d'opacité réglables, pour garantir la lisibilité sur n'importe quelle image. Ces réglages restent peu nombreux et visibles dans l'interface principale; les valeurs par défaut doivent déjà être lisibles sans y toucher.
 
+Demande du 2026-10-08, après essai à la voix : afficher le texte au fur et à mesure pendant une longue prise de parole plutôt que d'un bloc à la fin, puis l'effacer progressivement pour ne pas surcharger l'image. L'affichage progressif est l'objet de la seconde étape du jalon 4; l'effacement progressif relève du moteur de sous-titres (jalon 5).
+
 ## Évolution envisagée
 
 Ces éléments sont des pistes, pas des exigences à implémenter d'avance : améliorer latence et gestion des modèles, étendre les langues (espagnol, allemand, italien, portugais), puis évaluer macOS/Linux. Garder le MVP petit et valider chaque étape avant d'élargir le périmètre.

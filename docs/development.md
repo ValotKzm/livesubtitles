@@ -27,7 +27,8 @@ Lors d'un choix technique important, consigner la décision, sa raison, les alte
   - `cmake --preset windows-x64` : télécharge les sources d'OBS et les dépendances dans `.deps/` (hashes vérifiés par `buildspec.json`) et génère `build_x64/`.
   - `cmake --build --preset windows-x64` : produit `build_x64/RelWithDebInfo/livesubtitles.dll`.
   - `cmake --install build_x64 --config RelWithDebInfo` : copie le plugin dans `%ALLUSERSPROFILE%\obs-studio\plugins\livesubtitles\` (préfixe par défaut du modèle, sans droits administrateur). Fermer OBS avant. Pour retirer le plugin, supprimer ce seul dossier `livesubtitles`.
-  - `ctest --test-dir build_x64 -C RelWithDebInfo --output-on-failure` : exécute les tests (`tests/`, indépendants d'OBS; option CMake `ENABLE_TESTS`) : tampon circulaire, transitions silence/parole, et modèle VAD réel sur du silence et sur un enregistrement de référence. `ctest.exe` est dans le même dossier que le CMake de VS 2022.
+  - `ctest --test-dir build_x64 -C RelWithDebInfo --output-on-failure` : exécute les tests (`tests/`, indépendants d'OBS; option CMake `ENABLE_TESTS`) : tampon circulaire, transitions silence/parole, modèle VAD réel sur du silence et sur un enregistrement de référence, et transcription réelle de ce même enregistrement (anglais). Aucun test automatisé ne couvre encore du français.
+  - `build_x64\RelWithDebInfo\transcriber-bench.exe <modèle> <wav> fr 1 4` : mesure un modèle sur un enregistrement 16 kHz mono 16 bits (texte et temps de trois exécutions). `ctest.exe` est dans le même dossier que le CMake de VS 2022.
 - **Vérification du chargement :** lancer OBS, puis chercher `[livesubtitles]` dans le dernier fichier de `%APPDATA%\obs-studio\logs`; la ligne `plugin loaded successfully` doit y figurer.
 - **Licence du plugin :** GPL-2.0-or-later, celle du modèle officiel et de libobs.
 - **Alternative écartée :** cibler libobs 32.2. Son `CMakePresets.json` impose `Visual Studio 18 2026` et le SDK 10.0.26100, le modèle officiel ne le prend pas encore en charge, et le plugin ne se chargerait plus dans OBS 31.x. À réévaluer si une API propre à OBS 32 devient nécessaire.
@@ -39,7 +40,7 @@ Lors d'un choix technique important, consigner la décision, sa raison, les alte
 Sources vérifiées : en-têtes et licences des dépôts cités. Aucune de ces briques n'est encore intégrée ni mesurée.
 
 - **Capture audio :** `obs_source_add_audio_capture_callback()` (`libobs/obs.h`, 31.1.1) sur la source audio OBS choisie par l'utilisateur, ajouté à l'activation et retiré à la désactivation. Pas de code de périphérique Windows à maintenir, et l'audio reçu est celui de la source choisie uniquement. Le thread d'appel n'est pas documenté : le callback se limite à copier les échantillons dans le buffer borné. Alternative écartée : capture WASAPI propre au plugin (plus de code et de cas d'erreur, sans bénéfice pour le MVP).
-- **Intégration de whisper.cpp (faite le 2026-10-08) :** v1.9.5 récupérée par `FetchContent` dans `CMakeLists.txt` (archive du tag, SHA-256 vérifié), compilée en bibliothèque statique et liée dans `livesubtitles.dll` (environ 1,3 Mo, aucune DLL supplémentaire à livrer). Réglages : `GGML_NATIVE=OFF` pour ne pas dépendre du processeur de la machine de build, `GGML_OPENMP=OFF` pour ne pas exiger `vcomp140.dll`. Limite connue : ce réglage suppose un processeur avec AVX2; le comportement sur un processeur plus ancien n'est pas testé et devra être traité avant distribution.
+- **Intégration de whisper.cpp (faite le 2026-10-08) :** v1.9.5 récupérée par `FetchContent` dans `CMakeLists.txt` (archive du tag, SHA-256 vérifié), compilée en bibliothèque statique et liée dans `livesubtitles.dll` (environ 1,3 Mo, aucune DLL supplémentaire à livrer). Réglages : `GGML_NATIVE=OFF` pour ne pas dépendre du processeur de la machine de build, `GGML_OPENMP=OFF` pour ne pas exiger `vcomp140.dll`. Le preset donne à CMake une plateforme `x64,version=...` que ggml ne reconnaît pas : sans correction il compile du code générique sans AVX2, environ dix fois plus lent (constaté : 4,8 s au lieu de 0,5 s par phrase). `CMakeLists.txt` lui passe donc `x64` seul et refuse de configurer si le mode générique est détecté. Limite connue : ce réglage suppose un processeur avec AVX2; le comportement sur un processeur plus ancien n'est pas testé et devra être traité avant distribution.
 - **Modèle VAD :** `ggml-silero-v6.2.0.bin` (885 Ko, MIT, dépôt Hugging Face `ggml-org/whisper-vad`), téléchargé à la configuration CMake dans `data/models/` avec SHA-256 vérifié, ignoré par git et installé avec les données du plugin.
 - **Mesure VAD (i7-13700KF, un thread CPU) :** environ 0,3 ms de calcul par fenêtre de 32 ms sur l'enregistrement de référence `samples/jfk.wav` de whisper.cpp (test `voice-activity`).
 - **STT :** whisper.cpp (MIT, v1.9.5), lié au plugin, CPU par défaut. Entrée 16 kHz mono (`WHISPER_SAMPLE_RATE`), donc rééchantillonnage depuis le format OBS. Tailles de modèles annoncées : base 142 MiB, small 466 MiB, medium 1,5 GiB; variantes quantifiées plus petites. Pas de vrai mode streaming : résultats progressifs par fenêtres glissantes à notre charge.
@@ -49,6 +50,36 @@ Sources vérifiées : en-têtes et licences des dépôts cités. Aucune de ces b
   - Option B : transcription française puis CTranslate2 (MIT) avec OPUS-MT fr-en (Apache-2.0, 75 M de paramètres); deux inférences et une dépendance en plus, mais extensible à d'autres langues cibles.
 - **Décision du 2026-10-08 :** démarrer avec l'option A, en gardant l'interface compatible avec l'option B; à confirmer par mesure au jalon 5.
 - **Projet existant comparable :** `royshil/obs-localvocal` (GPL-2.0) : filtre audio OBS fondé sur whisper.cpp et CTranslate2, avec de nombreuses options et plusieurs variantes d'installateur. Référence utile pour l'intégration; LiveSubtitles s'en distingue par un parcours unique sans réglage technique.
+
+### Transcription et traduction : mesures du 2026-10-08
+
+Conditions : i7-13700KF, CPU seul, 4 threads, tâche `translate` français vers anglais, outil `transcriber-bench` (mêmes options de compilation que le plugin). Audio : neuf phrases de 2 à 15 secondes produites par la synthèse vocale Windows (voix Hortense), donc une diction propre et sans bruit : ces chiffres sont optimistes pour la qualité et ne remplacent pas un essai à la voix. Les enregistrements ne sont pas dans le dépôt.
+
+| Modèle | Taille | Temps par phrase | Qualité observée |
+|---|---|---|---|
+| `ggml-base-q5_1` | 57 Mo | 0,51 à 0,65 s | Phrases simples correctes; contresens sur le vocabulaire moins courant (« manette » rendu par « coin », « je baisse les ombres » par « I kiss the shadows », « une petite pause » par « a small pot »). |
+| `ggml-base` | 141 Mo | 0,50 à 0,62 s | Équivalente à la version quantifiée. |
+| `ggml-small-q5_1` | 181 Mo | 2,1 à 2,3 s | Nettement meilleure : « controller », « I lower the shadows », « a short break »; une erreur sur « le chat » (« the cat »). |
+| `ggml-small` | 465 Mo | 2,0 à 2,2 s | Équivalente à la version quantifiée. |
+
+- Le temps dépend peu de la durée de la phrase : l'encodeur traite toujours une fenêtre de 30 secondes.
+- La quantification q5_1 divise la taille par 2,5 sans effet mesurable sur le temps ni sur le texte.
+- **Contexte audio réduit (`audio_ctx`) :** ajusté à la durée de la phrase, il ramène `base` à 0,17-0,45 s, mais de façon instable. Trop serré, il fait répéter ou inventer du texte et relance le décodage pendant plusieurs secondes (jusqu'à 6,4 s constatés); même avec une marge large (durée + 5 s, plancher 10 s), une phrase a pris 1,6 s sur une des trois exécutions. Le plugin utilise donc le contexte complet. `TRANSCRIBER_FIT_AUDIO_CONTEXT` reste disponible dans `src/transcriber.c` pour l'affichage progressif, à ne retenir qu'après de nouvelles mesures.
+- **Essai à la voix dans OBS (2026-10-08) :** avec `base`, délai jugé bon (0,53 s en moyenne sur 18 énoncés d'après le journal) mais traductions trop souvent hors sujet; avec `small`, traductions jugées nettement meilleures et délai acceptable.
+- **Choix actuel :** `ggml-small-q5_1`, téléchargé à la configuration CMake (SHA-256 vérifié) et installé avec le plugin, avec jusqu'à 8 threads (la moitié des cœurs physiques). Temps de `small` selon les threads, sur les mêmes phrases : 2,0 à 2,2 s avec 4, 1,5 à 1,7 s avec 6, 1,35 à 1,55 s avec 8, 1,1 à 1,4 s avec 12. À remesurer sur une machine plus modeste et pendant un jeu.
+
+### Option B mesurée : transcription française puis traduction dédiée (2026-10-08)
+
+Constat : `base` transcrit le français presque sans faute sur les neuf phrases, en 0,5 à 0,65 s; c'est sa traduction intégrée qui produit les contresens. Mesure de la traduction seule, hors plugin, avec la bibliothèque Python `ctranslate2` (int8, 4 threads, faisceau de 4) sur le texte français sorti de `base` :
+
+| Modèle de traduction | Taille mesurée | Temps par phrase | Qualité observée |
+|---|---|---|---|
+| OPUS-MT fr-en (conversion `gaudi/opus-mt-fr-en-ctranslate2`) | 154 Mo | 0,03 à 0,25 s | Au niveau de `small` ou mieux : « controller », « I lower the shadows », « a little five minutes' break ». |
+| OPUS-MT tc-big fr-en (conversion `craftwise/ct2-opus-mt-tc-big-fr-en-int8`) | 238 Mo | 0,06 à 0,48 s | Comparable, formulations un peu plus soignées. |
+
+- Total estimé pour l'option B : 0,55 à 0,9 s par phrase, contre 1,35 à 2,2 s pour `small` seul, à qualité au moins égale sur cet échantillon.
+- Limites de cette mesure : les erreurs de transcription se propagent (« est bienvenue » donne « is welcome »); la roue Python utilise Intel MKL, alors qu'un build embarqué dans le plugin utiliserait sans doute un autre backend, plus lent; les conversions testées viennent de tiers et ne serviraient pas telles quelles en distribution (conversion à refaire depuis le modèle Helsinki-NLP, Apache-2.0); l'audio est de la synthèse vocale.
+- Coût d'intégration : CTranslate2 (MIT) et SentencePiece (Apache-2.0) à compiler et lier, un modèle de plus à livrer, une étape de traduction en C++. Non décidé.
 
 ## Tests et performance
 
