@@ -4,7 +4,7 @@ Ce fichier suit les jalons du projet. Ce n'est ni une spécification détaillée
 
 ## Cible
 
-MVP Windows 10/11 pour OBS Studio : sous-titres français vers anglais, traitement local par défaut, sans compte ni clé API, utilisable par un streamer non technique.
+MVP Windows 10/11 pour OBS Studio : sous-titres français et anglais dans les deux sens (français vers anglais d'abord), traitement local par défaut, sans compte ni clé API, utilisable par un streamer non technique.
 
 Les objectifs produit sont dans [docs/product.md](docs/product.md), l'architecture cible dans [docs/architecture.md](docs/architecture.md), et les règles de validation/dépendances dans [docs/development.md](docs/development.md).
 
@@ -12,7 +12,7 @@ Les objectifs produit sont dans [docs/product.md](docs/product.md), l'architectu
 
 Au 2026-10-08, les jalons 0 à 3 sont terminés. Le plugin, issu du modèle officiel `obs-plugintemplate`, compile avec les commandes de [docs/development.md](docs/development.md) et se charge dans OBS 32.2.2. Sa source `livesubtitles_source` propose le choix du microphone et une activation, capte l'audio de la source choisie dans un tampon borné, détecte la parole avec Silero VAD sur un fil dédié et affiche son état (parole ou silence, niveau) à la place des sous-titres. Aucune transcription ni traduction n'existe encore.
 
-**Prochaine étape : décider de l'option B (transcription française puis traduction dédiée, mesurée plus rapide à qualité égale), puis affichage progressif (jalon 4, seconde étape).**
+**Prochaine étape : intégrer la traduction en étape distincte (option B, rendue nécessaire par l'objectif multilingue de [docs/product.md](docs/product.md)), puis affichage progressif (jalon 4, seconde étape).**
 
 ## Jalons
 
@@ -44,7 +44,7 @@ Ajouter les contrôles minimaux de sélection du microphone et d'activation, pui
 
 ### 4. Transcription locale progressive - En cours
 
-Première étape (transcription d'un énoncé complet à la fin de la parole) : terminée le 2026-10-08, vérifiée à la voix dans OBS; mesures de latence dans [docs/development.md](docs/development.md). Seconde étape (résultats progressifs sans doublons) : à faire, après décision sur l'option B.
+Première étape (transcription d'un énoncé complet à la fin de la parole) : terminée le 2026-10-08, vérifiée à la voix dans OBS; mesures de latence dans [docs/development.md](docs/development.md). Seconde étape (résultats progressifs sans doublons) : à faire, après l'intégration de l'option B.
 
 Intégrer le backend STT choisi derrière une interface. Produire des résultats progressifs si le backend le permet et éviter les doublons entre fenêtres.
 
@@ -76,7 +76,7 @@ Compléter les tests pertinents, vérifier confidentialité, mémoire bornée, n
 
 Tranché au jalon 0 (voir [docs/development.md](docs/development.md)) : version cible d'OBS, langage et système de build, capture audio, VAD, STT, licence du plugin, traduction en une étape pour démarrer.
 
-Encore ouvert : confirmation par mesure de la traduction en une étape (jalon 5), passage éventuel à l'option B (mesurée, non décidée; `small` en une étape en attendant), mode de livraison des modèles (installateur ou téléchargement annoncé), packaging.
+Encore ouvert : confirmation par mesure de la traduction en une étape (jalon 5), intégration de l'option B (décidée le 2026-10-08; `small` en une étape en attendant), choix final du modèle de traduction et livraison du modèle de la paire choisie, mode de livraison des modèles (installateur ou téléchargement annoncé), packaging.
 
 ## Règle de progression
 

@@ -29,6 +29,12 @@ Demande du 2026-10-08, à implémenter après l'affichage du texte de test : per
 
 Demande du 2026-10-08, après essai à la voix : afficher le texte au fur et à mesure pendant une longue prise de parole plutôt que d'un bloc à la fin, puis l'effacer progressivement pour ne pas surcharger l'image. L'affichage progressif est l'objet de la seconde étape du jalon 4; l'effacement progressif relève du moteur de sous-titres (jalon 5).
 
+## Langues : objectif précisé le 2026-10-08
+
+Le but est de toucher le plus de streamers possible : la langue parlée et la langue des sous-titres doivent pouvoir être choisies librement, dans les deux sens, et pas seulement vers l'anglais (par exemple anglais vers français ou russe, français vers une autre langue). Langues visées à terme : français, anglais, russe, espagnol, puis d'autres. Pour l'instant, se limiter au français et à l'anglais, dans les deux sens.
+
+Conséquence : la traduction intégrée de Whisper, qui n'écrit qu'en anglais, ne suffit pas; la traduction doit être une étape distincte de la transcription. Le streamer ne doit pas avoir à gérer des modèles : il choisit deux langues, le plugin se charge du reste.
+
 ## Évolution envisagée
 
 Ces éléments sont des pistes, pas des exigences à implémenter d'avance : améliorer latence et gestion des modèles, étendre les langues (espagnol, allemand, italien, portugais), puis évaluer macOS/Linux. Garder le MVP petit et valider chaque étape avant d'élargir le périmètre.
