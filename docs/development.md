@@ -118,7 +118,7 @@ Modèle de traduction français vers anglais, converti par nos soins le 2026-10-
 
 - Commande, dans un environnement Python contenant `ctranslate2`, `transformers`, `torch`, `sentencepiece` et `sacremoses` : `ct2-transformers-converter --model Helsinki-NLP/opus-mt-fr-en --output_dir data/models/opus-mt-fr-en --quantization int8 --copy_files source.spm target.spm`.
 - Résultat : 79 Mo en cinq fichiers (`model.bin` 77 Mo, `shared_vocabulary.json`, `config.json`, `source.spm`, `target.spm`), chargés en 0,12 s. La conversion tierce utilisée pour les premières mesures pesait 154 Mo parce qu'elle stocke les poids en float32.
-- Le dossier `data/models/` est ignoré par git : le modèle n'est encore disponible que sur la machine où la conversion a été faite. Sans lui, CMake n'enregistre pas le test `translator` et l'annonce à la configuration. Où l'héberger pour que CMake et l'installateur le récupèrent avec vérification d'empreinte reste à décider.
+- Hébergement : archive `opus-mt-fr-en-ct2-int8.zip` (61 Mo) de la release GitHub `models-v1` du dépôt, dont la description cite le modèle d'origine, sa licence et la commande de conversion. CMake la télécharge à la configuration avec SHA-256 vérifié et l'extrait dans `data/models/opus-mt-fr-en/` (ignoré par git) quand `model.bin` y manque. Pour publier un autre modèle : `gh release create` ou `gh release upload`, puis reporter l'URL et l'empreinte dans `CMakeLists.txt`.
 
 Mesure du module compilé (i7-13700KF, int8, faisceau de 4, neuf phrases de 2 à 40 jetons, outil `translator-bench`; mêmes plages de temps avec la conversion tierce et avec la nôtre) :
 
