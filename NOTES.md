@@ -2,27 +2,31 @@
 
 Ce fichier dit où le travail s'est arrêté et ce qu'il faut savoir pour reprendre sans tout redécouvrir. Il complète `PLAN.md` (jalons) et `docs/` (décisions et mesures) sans les répéter. Le mettre à jour à la fin de chaque session; supprimer ce qui n'est plus vrai.
 
-Dernière mise à jour : 2026-10-08.
+Dernière mise à jour : 2026-10-09.
 
 ## Où on en est
 
 - Jalons 0 à 3 terminés. Jalon 4 : première étape terminée et vérifiée à la voix dans OBS.
 - Le plugin installé traduit chaque phrase du français vers l'anglais à la fin de la prise de parole, avec Whisper `small` en une seule inférence (option A), en 1,4 s environ sur la machine de développement.
-- Tout est fusionné dans `main` et poussé. Aucune branche de travail ouverte.
+- Branche `feat/translation` ouverte, non commitée au 2026-10-09 : étapes 1 à 3 de l'option B faites et vérifiées (voir ci-dessous). Le plugin lui-même n'est pas encore modifié et se comporte comme sur `main`.
 
-## Prochaine tâche : traduction en étape distincte (option B)
+## Tâche en cours : traduction en étape distincte (option B)
 
 Feu vert donné par l'utilisateur le 2026-10-08. Raison : il veut des sous-titres dans d'autres langues que l'anglais (voir `docs/product.md`, section « Langues »), ce que Whisper ne produit pas.
 
 Cible : Whisper transcrit dans la langue parlée, puis un modèle OPUS-MT traduit le texte via CTranslate2. Rester sur français vers anglais pour valider, puis ajouter anglais vers français.
 
-Ordre proposé :
+Fait le 2026-10-09 (détails et mesures dans `docs/development.md`, section « Intégration de CTranslate2 et SentencePiece ») :
 
-1. Créer une branche. Vérifier d'abord que CTranslate2 et SentencePiece se compilent dans notre build CMake (statique, MSVC 2022, sans Intel MKL), avant de toucher au plugin. Le backend de calcul de CTranslate2 sans MKL est à choisir et à mesurer : les temps consignés viennent de la roue Python, qui utilise MKL.
-2. Préparer le modèle : convertir `Helsinki-NLP/opus-mt-fr-en` en int8 nous-mêmes. Les conversions testées viennent de tiers et ne doivent pas être distribuées telles quelles.
-3. Écrire un module de traduction indépendant d'OBS, sur le modèle de `src/transcriber.c`, avec son test et un outil de mesure.
-4. Dans `src/subtitle-source.c`, passer le transcripteur en `translate = false` avec `ggml-base-q5_1`, et enchaîner la traduction dans `recognize_utterance`.
+1. CTranslate2 v4.8.2 (backend Ruy, sans MKL ni OpenMP) et SentencePiece v0.2.1 se compilent en statique dans le build du projet, avec un correctif pour CTranslate2 (`cmake/patches/ctranslate2-windows.patch`).
+2. Modèle `Helsinki-NLP/opus-mt-fr-en` converti par nos soins en int8 (79 Mo), placé dans `data/models/opus-mt-fr-en/`, hors dépôt.
+3. Module `src/translator.cpp` (interface C dans `src/translator.h`), test `translator` et outil `translator-bench`. Les cinq tests passent. Traduction seule : 30 à 140 ms par phrase courante, jusqu'à 0,6 s pour une phrase de 40 jetons.
+
+Reste à faire :
+
+4. Dans `src/subtitle-source.c`, passer le transcripteur en `translate = false` avec `ggml-base-q5_1`, créer le traducteur et enchaîner la traduction dans `recognize_utterance`. Ajouter `src/translator.cpp`, `ctranslate2` et `sentencepiece-static` à la cible du plugin dans `CMakeLists.txt` (aujourd'hui seule la bibliothèque de test `translator-lib` les utilise). Ne pas journaliser le texte français intermédiaire.
 5. Remesurer le délai total dans le plugin, puis faire tester à la voix. `base` n'a été jugé en transcription française que sur de la synthèse vocale : sa qualité sur la vraie voix de l'utilisateur est inconnue. Si elle ne suffit pas, essayer `small` en transcription.
+6. Décider où héberger le modèle de traduction converti pour que CMake le télécharge avec vérification d'empreinte, comme les modèles Whisper. Tant que ce n'est pas fait, un clone neuf du dépôt compile mais n'a ni le test `translator` ni de quoi traduire.
 
 Ensuite : affichage progressif (jalon 4, seconde étape), puis moteur de sous-titres avec effacement progressif (jalon 5).
 
@@ -52,11 +56,11 @@ Tout est sous `.deps/` (ignoré par git) et peut être supprimé puis recréé :
 
 - `.deps/models/` : modèles Whisper `base`, `base-q5_1`, `small`, `small-q5_1` pour les mesures.
 - `.deps/bench/` : neuf phrases françaises en wav, produites par la voix de synthèse Windows « Microsoft Hortense ». Le texte de chacune est dans `docs/development.md` par extraits; les régénérer avec `System.Speech` si besoin.
-- `.deps/bench-venv/` : environnement Python avec `ctranslate2`, `sentencepiece`, `huggingface_hub`.
+- `.deps/bench-venv/` : environnement Python avec `ctranslate2`, `sentencepiece`, `huggingface_hub`, et depuis le 2026-10-09 `torch` (CPU), `transformers` et `sacremoses` pour convertir les modèles.
 - `.deps/bench-mt/` : modèles de traduction convertis par des tiers, pour mesure uniquement.
-- `data/models/` (ignoré aussi) : modèles installés avec le plugin, téléchargés par CMake avec vérification d'empreinte.
+- `data/models/` (ignoré aussi) : modèles installés avec le plugin. Les modèles Whisper et VAD sont téléchargés par CMake avec vérification d'empreinte; `opus-mt-fr-en/` vient de notre conversion locale et n'est pas recréé automatiquement (commande dans `docs/development.md`).
 
-Les scripts Python de mesure de la traduction étaient temporaires et n'ont pas été conservés : les réécrire au besoin (tokenisation SentencePiece avec `source.spm`, ajout de `</s>`, `Translator.translate_batch`).
+Les scripts Python de mesure de la traduction étaient temporaires et n'ont pas été conservés : les réécrire au besoin (tokenisation SentencePiece avec `source.spm`, ajout de `</s>`, `Translator.translate_batch`). Pour mesurer le build du plugin, utiliser plutôt `translator-bench` avec un fichier texte d'une phrase par ligne.
 
 ## Pièges déjà rencontrés
 
@@ -66,6 +70,10 @@ Les scripts Python de mesure de la traduction étaient temporaires et n'ont pas 
 - **Contexte audio réduit de Whisper (`audio_ctx`) :** plus rapide en moyenne mais instable (texte répété ou inventé, plusieurs secondes de blocage). Non utilisé.
 - **`cmake --install` et les anciens fichiers :** il ajoute et remplace, mais ne retire pas un modèle devenu inutile du dossier d'installation.
 - **Python avec `-I` :** ignore `PYTHONIOENCODING`; ajouter `-X utf8` pour afficher du texte non latin.
+- **Pools de threads de CTranslate2 et Ruy sous Windows :** sans OpenMP, ils sont en `thread_local` et leur destruction à la fin d'un thread se bloque pour toujours dès qu'il y a plus d'un thread de calcul. D'où le correctif et l'appel à `ctranslate2::release_thread_resources()` dans `translator_create`. Tout nouvel usage de CTranslate2 depuis un autre thread (chargement de modèle compris) doit faire de même avant la fin de ce thread. Symptôme : un programme ou un test qui ne se termine pas, sans message.
+- **`CMAKE_INCLUDE_CURRENT_DIR` du modèle OBS :** il fait échouer la compilation de Ruy (ses `time.h` et `cpuinfo.h` masquent les en-têtes système). Désactivé autour de `FetchContent_MakeAvailable` pour ces dépendances.
+- **Avertissements traités comme erreurs :** les en-têtes de CTranslate2 en produisent sous MSVC; les dépendances sont donc déclarées `SYSTEM`.
+- **Commande `python` nue dans Git Bash :** elle lance un interpréteur qui attend sans fin. Toujours appeler `.deps/bench-venv/Scripts/python.exe`.
 
 ## Points ouverts
 
@@ -74,4 +82,6 @@ Les scripts Python de mesure de la traduction étaient temporaires et n'ont pas 
 - Aucun test automatisé sur du français.
 - Aucune mesure sur une machine modeste ni pendant un jeu.
 - Livraison des modèles (dans l'installateur ou téléchargement annoncé au choix des langues) : non décidée.
-- Licences à revérifier avant distribution : modèles OPUS-MT (fiche Hugging Face : Apache-2.0; mention d'attribution à prévoir) et notices des bibliothèques liées.
+- Licences à revérifier avant distribution : modèles OPUS-MT (fiche Hugging Face : Apache-2.0; mention d'attribution à prévoir) et notices des bibliothèques liées. Les bibliothèques Apache-2.0 désormais liées (Ruy, SentencePiece, cpu_features) font relever le binaire de la GPL-3.0-or-later.
+- Le backend Ruy est deux à quatre fois plus lent que MKL et n'a été mesuré que sur la machine de développement.
+- Le correctif de CTranslate2 pourrait être proposé en amont pour ne plus avoir à le maintenir.

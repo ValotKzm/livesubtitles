@@ -39,10 +39,48 @@ if("${_ggml_cpu_options}" MATCHES "GGML_CPU_GENERIC")
   message(FATAL_ERROR "ggml was configured without CPU vector instructions; speech recognition would be too slow.")
 endif()
 
+# CTranslate2 and SentencePiece translate the recognized text. Both are linked statically, like whisper.cpp.
+# CTranslate2 comes from git because its release archives lack the submodules it builds (Ruy, cpu_features, spdlog).
+# The Ruy backend needs neither Intel MKL nor an OpenMP runtime; the patch makes its thread pools safe to tear down
+# on Windows and lets the C runtime below replace the static one CTranslate2 imposes: see docs/development.md.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+set(WITH_MKL OFF)
+set(WITH_RUY ON)
+set(OPENMP_RUNTIME "NONE" CACHE STRING "CTranslate2 without OpenMP" FORCE)
+set(BUILD_CLI OFF)
+FetchContent_Declare(
+  ctranslate2
+  GIT_REPOSITORY https://github.com/OpenNMT/CTranslate2.git
+  GIT_TAG d44d2d069eb88c7b7804da864c10c201501cb4a9 # v4.8.2
+  GIT_SUBMODULES third_party/cpu_features third_party/spdlog third_party/ruy
+  GIT_SUBMODULES_RECURSE ON
+  PATCH_COMMAND git checkout -- .
+  COMMAND git apply --ignore-whitespace "${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/ctranslate2-windows.patch"
+  EXCLUDE_FROM_ALL
+  SYSTEM
+)
+set(SPM_ENABLE_SHARED OFF)
+set(SPM_ENABLE_TCMALLOC OFF)
+# The last release that bundles its own subset of Abseil; later ones download the whole library.
+FetchContent_Declare(
+  sentencepiece
+  URL https://github.com/google/sentencepiece/archive/refs/tags/v0.2.1.tar.gz
+  URL_HASH SHA256=c1a59e9259c9653ad0ade653dadff074cd31f0a6ff2a11316f67bee4189a8f1b
+  EXCLUDE_FROM_ALL
+  SYSTEM
+)
+# Ruy has headers named time.h and cpuinfo.h: with its own directory in the include path, as the OBS template sets
+# up for every target, they would hide the system headers of the same name.
+set(CMAKE_INCLUDE_CURRENT_DIR FALSE)
+FetchContent_MakeAvailable(ctranslate2 sentencepiece)
+set(CMAKE_INCLUDE_CURRENT_DIR TRUE)
+unset(CMAKE_MSVC_RUNTIME_LIBRARY)
+
 # The models are installed with the plugin data but not stored in git.
 set(MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data/models")
 set(VAD_MODEL_FILE "${MODEL_DIR}/ggml-silero-v6.2.0.bin")
 set(STT_MODEL_FILE "${MODEL_DIR}/ggml-small-q5_1.bin")
+set(MT_MODEL_DIR "${MODEL_DIR}/opus-mt-fr-en")
 if(NOT EXISTS "${VAD_MODEL_FILE}")
   file(
     DOWNLOAD
@@ -128,4 +166,23 @@ if(ENABLE_TESTS)
   add_executable(transcriber-bench tests/transcriber-bench.c src/transcriber.c)
   target_include_directories(transcriber-bench PRIVATE src)
   target_link_libraries(transcriber-bench PRIVATE whisper)
+
+  add_library(translator-lib STATIC src/translator.cpp)
+  target_include_directories(translator-lib PUBLIC src)
+  target_include_directories(translator-lib SYSTEM PRIVATE "${sentencepiece_SOURCE_DIR}/src")
+  target_link_libraries(translator-lib PRIVATE ctranslate2 sentencepiece-static)
+
+  # Runs the real model, which is not downloaded yet: see docs/development.md for how to produce it.
+  add_executable(translator-test tests/translator-test.cpp)
+  target_link_libraries(translator-test PRIVATE translator-lib)
+  if(EXISTS "${MT_MODEL_DIR}/model.bin")
+    add_test(NAME translator COMMAND translator-test "${MT_MODEL_DIR}")
+    set_tests_properties(translator PROPERTIES TIMEOUT 120)
+  else()
+    message(STATUS "Translation model not found in ${MT_MODEL_DIR}: the translator test is skipped")
+  endif()
+
+  # Measurement tool, run by hand with a model directory and a text file: see docs/development.md.
+  add_executable(translator-bench tests/translator-bench.c)
+  target_link_libraries(translator-bench PRIVATE translator-lib)
 endif()
