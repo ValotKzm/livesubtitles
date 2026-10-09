@@ -66,9 +66,17 @@ Branche `feat/language-choice`, vérifiée à la voix par l'utilisateur le 2026-
 - Modèle anglais vers français converti comme le premier et ajouté à la release `models-v1` (`opus-mt-en-fr-ct2-int8.zip`); CMake télécharge les deux paires (téléchargement vérifié). Limite vue à la conversion : « stream » est traduit par « ruisseau », le modèle ne connaît pas le vocabulaire du streaming.
 - Message d'erreur de modèle corrigé : il parlait seulement du modèle de détection de la voix.
 
+## Jalon 6 : présentation de l'état (fait)
+
+Branche `feat/status-display`, vérifiée dans OBS par l'utilisateur le 2026-10-09 (journal sans erreur ni fuite mémoire). Le jalon 6 est terminé.
+
+- Décision de l'utilisateur : l'image, que les viewers voient, reste vide quand tout va bien et quand la source est désactivée. Elle ne porte un message que si le streamer doit agir : pas de microphone choisi, microphone indisponible, fichier de modèle introuvable.
+- L'état complet est une ligne « État » dans la fenêtre des propriétés (désactivé, démarrage, à l'écoute, et les trois messages ci-dessus en couleur d'avertissement ou d'erreur). `video_tick` appelle `obs_source_update_properties` à chaque changement d'état pour recharger la fenêtre si elle est ouverte.
+- Le niveau sonore et l'indication parole/silence ne sont plus affichés : les rafraîchir en direct obligerait à recharger la fenêtre plusieurs fois par seconde, ce qui interrompt le réglage d'un curseur. Le mélangeur audio d'OBS montre déjà le niveau du microphone.
+
 ## Prochaine tâche
 
-Reste du jalon 6 : présentation de l'état et messages d'erreur.
+Jalon 7 (stabilisation et distribution) : lire `PLAN.md` avant de commencer.
 
 Décision du 2026-10-09 : l'écoute reste continue tant que la case est cochée, même quand la source n'est pas visible. L'utilisateur préfère ne pas perdre de mots au redémarrage (rechargement des modèles) et accepte le coût : environ 500 Mo de mémoire (mesuré avec les outils de mesure : 366 Mo pour la transcription `small`, 130 Mo pour la traduction), processeur sollicité seulement pendant la parole.
 
