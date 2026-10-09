@@ -8,7 +8,7 @@ Dernière mise à jour : 2026-10-09.
 
 - Jalons 0 à 3 terminés. Jalon 4 : première étape terminée et vérifiée à la voix dans OBS.
 - Le plugin installé traduit chaque phrase du français vers l'anglais à la fin de la prise de parole, avec Whisper `small` en une seule inférence (option A), en 1,4 s environ sur la machine de développement.
-- Option B vérifiée à la voix dans OBS et fusionnée dans `main` le 2026-10-09. Aucune branche de travail ouverte. Attention : le modèle de traduction n'est pas téléchargeable par un clone neuf (voir le point 6). Le plugin installé sur la machine est celui de `main` : Whisper `small` transcrit le français, puis OPUS-MT traduit en anglais, en 1,2 s environ.
+- Option B vérifiée à la voix dans OBS et fusionnée dans `main` le 2026-10-09. Aucune branche de travail ouverte. Le plugin installé sur la machine est celui de `main` : Whisper `small` transcrit le français, puis OPUS-MT traduit en anglais, en 1,2 s environ.
 
 ## Dernière tâche : traduction en étape distincte (option B)
 
@@ -27,7 +27,7 @@ Fait le 2026-10-09 (détails et mesures dans `docs/development.md`, section « I
 Reste à faire :
 
 5. Essai à la voix de `small` + traduction le 2026-10-09 : 10 énoncés, 1,2 s en moyenne (1,3 s au pire) dont 0,06 s de traduction, arrêt et relance propres. Qualité jugée « vraiment mieux, pas parfaite », délai jugé acceptable; l'utilisateur compte sur l'affichage progressif et l'effacement pour la fluidité. Combinaison retenue. Premier essai du 2026-10-09 avec `base` en transcription : 60 énoncés, 0,52 s en moyenne dont 0,06 s de traduction, arrêt et relance propres, mais traductions jugées trop imprécises par l'utilisateur, qui met en cause `base`. `base` est donc écarté pour la transcription du français. `base` n'a été jugé en transcription française que sur de la synthèse vocale : sa qualité sur la vraie voix de l'utilisateur est inconnue. Si elle ne suffit pas, essayer `small` en transcription.
-6. Héberger le modèle de traduction converti pour que CMake le télécharge avec vérification d'empreinte, comme les modèles Whisper. Piste retenue : une archive attachée à une release GitHub du dépôt (public). L'outil `gh` n'est pas installé sur la machine et git n'a qu'un accès SSH : la release doit être créée par l'utilisateur sur le site, ou après installation et connexion de `gh`. Tant que ce n'est pas fait, un clone neuf du dépôt compile mais n'a ni le test `translator` ni de quoi traduire.
+6. Fait le 2026-10-09 : le modèle converti est publié dans la release GitHub `models-v1` du dépôt (archive `opus-mt-fr-en-ct2-int8.zip`) et CMake le télécharge avec vérification d'empreinte quand `data/models/opus-mt-fr-en/model.bin` manque. Vérifié en écartant le modèle local puis en reconfigurant. Un nouveau modèle de traduction (autre paire de langues) se publie de la même façon, dans une nouvelle release ou comme fichier supplémentaire.
 
 ## Prochaine tâche
 
@@ -45,6 +45,7 @@ Ensuite : moteur de sous-titres avec effacement progressif (jalon 5).
 
 ## Environnement de la machine de développement
 
+- GitHub CLI (`gh`) installé le 2026-10-09 dans `C:\Program Files\GitHub CLI` et connecté au compte de l'utilisateur. Une règle de `.claude/settings.local.json` autorise les commandes `gh release`; sans elle, le mode automatique refuse de publier.
 - OBS Studio 32.2.2 installé dans `C:\Program Files\obs-studio`. Le plugin vise libobs 31.1.1.
 - CMake et CTest ne sont pas dans le PATH : ils sont dans `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin`.
 - Commandes de build, de test et d'installation : `docs/development.md`, section « Cible OBS, langage et build ».
@@ -63,7 +64,7 @@ Tout est sous `.deps/` (ignoré par git) et peut être supprimé puis recréé :
 - `.deps/bench/` : neuf phrases françaises en wav, produites par la voix de synthèse Windows « Microsoft Hortense ». Le texte de chacune est dans `docs/development.md` par extraits; les régénérer avec `System.Speech` si besoin.
 - `.deps/bench-venv/` : environnement Python avec `ctranslate2`, `sentencepiece`, `huggingface_hub`, et depuis le 2026-10-09 `torch` (CPU), `transformers` et `sacremoses` pour convertir les modèles.
 - `.deps/bench-mt/` : modèles de traduction convertis par des tiers, pour mesure uniquement.
-- `data/models/` (ignoré aussi) : modèles installés avec le plugin. Les modèles Whisper et VAD sont téléchargés par CMake avec vérification d'empreinte; `opus-mt-fr-en/` vient de notre conversion locale et n'est pas recréé automatiquement (commande dans `docs/development.md`).
+- `data/models/` (ignoré aussi) : modèles installés avec le plugin. Les modèles Whisper et VAD sont téléchargés par CMake avec vérification d'empreinte; `opus-mt-fr-en/` aussi, depuis la release `models-v1` du dépôt.
 
 Les scripts Python de mesure de la traduction étaient temporaires et n'ont pas été conservés : les réécrire au besoin (tokenisation SentencePiece avec `source.spm`, ajout de `</s>`, `Translator.translate_batch`). Pour mesurer le build du plugin, utiliser plutôt `translator-bench` avec un fichier texte d'une phrase par ligne.
 

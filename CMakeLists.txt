@@ -98,9 +98,18 @@ if(NOT EXISTS "${STT_MODEL_FILE}")
     EXPECTED_HASH SHA256=ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb
   )
 endif()
-# The translation model is converted by hand and not downloaded yet: see docs/development.md.
+# Our own conversion of the OPUS-MT model, published as a release of this repository: see docs/development.md.
 if(NOT EXISTS "${MT_MODEL_DIR}/model.bin")
-  message(WARNING "Translation model not found in ${MT_MODEL_DIR}: the plugin will report a model error")
+  message(STATUS "Downloading the translation model (61 MB)")
+  set(_mt_model_archive "${CMAKE_CURRENT_BINARY_DIR}/opus-mt-fr-en-ct2-int8.zip")
+  file(
+    DOWNLOAD
+    https://github.com/ValotKzm/livesubtitles/releases/download/models-v1/opus-mt-fr-en-ct2-int8.zip
+    "${_mt_model_archive}"
+    EXPECTED_HASH SHA256=281c06fa89a1f0a3bff47ffc3445fc5087c54bfbb50ed37816240a0b9c902b1f
+  )
+  file(ARCHIVE_EXTRACT INPUT "${_mt_model_archive}" DESTINATION "${MT_MODEL_DIR}")
+  file(REMOVE "${_mt_model_archive}")
 endif()
 
 include(compilerconfig)
@@ -180,10 +189,8 @@ if(ENABLE_TESTS)
 
   add_executable(translator-test tests/translator-test.cpp)
   target_link_libraries(translator-test PRIVATE translator-lib)
-  if(EXISTS "${MT_MODEL_DIR}/model.bin")
-    add_test(NAME translator COMMAND translator-test "${MT_MODEL_DIR}")
-    set_tests_properties(translator PROPERTIES TIMEOUT 120)
-  endif()
+  add_test(NAME translator COMMAND translator-test "${MT_MODEL_DIR}")
+  set_tests_properties(translator PROPERTIES TIMEOUT 120)
 
   # Measurement tool, run by hand with a model directory and a text file: see docs/development.md.
   add_executable(translator-bench tests/translator-bench.c)
