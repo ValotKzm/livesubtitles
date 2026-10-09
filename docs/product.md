@@ -31,7 +31,7 @@ Demande du 2026-10-08, après essai à la voix : afficher le texte au fur et à 
 
 ## Langues : objectif précisé le 2026-10-08
 
-Le but est de toucher le plus de streamers possible : la langue parlée et la langue des sous-titres doivent pouvoir être choisies librement, dans les deux sens, et pas seulement vers l'anglais (par exemple anglais vers français ou russe, français vers une autre langue). Langues visées à terme : français, anglais, russe, espagnol, puis d'autres. Pour l'instant, se limiter au français et à l'anglais, dans les deux sens.
+Le but est de toucher le plus de streamers possible : la langue parlée et la langue des sous-titres doivent pouvoir être choisies librement, dans les deux sens, et pas seulement vers l'anglais (par exemple anglais vers français ou russe, français vers une autre langue). Langues visées à terme : français, anglais, russe, espagnol, puis d'autres. Pour l'instant, se limiter au français et à l'anglais, dans les deux sens : implémenté le 2026-10-09, avec deux listes dans les propriétés de la source. Choisir la même langue des deux côtés donne des sous-titres non traduits.
 
 Conséquence : la traduction intégrée de Whisper, qui n'écrit qu'en anglais, ne suffit pas; la traduction doit être une étape distincte de la transcription. Le streamer ne doit pas avoir à gérer des modèles : il choisit deux langues, le plugin se charge du reste.
 

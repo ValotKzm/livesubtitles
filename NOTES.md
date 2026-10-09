@@ -56,9 +56,19 @@ Branche `feat/subtitle-style`, vérifiée dans OBS par l'utilisateur le 2026-10-
 - Demandes de l'utilisateur après le premier essai, faites et validées : une ligne pleine doit occuper environ 90 % de la largeur de la zone (elle n'en prenait que les deux tiers), et la taille du texte doit être réglable.
 - Taille du texte : réglage de 36 à 120 pixels (72 par défaut). Le nombre de caractères par ligne en découle (`AVERAGE_CHAR_WIDTH`, 0,445 fois la taille, mesuré avec GDI+ sur des phrases anglaises et françaises en Arial) : 48 caractères à 72 pixels. Un texte plus large ou plus haut que la zone, par exemple en capitales, est réduit au rendu.
 
+## Jalon 6 : choix des langues (fait)
+
+Branche `feat/language-choice`, vérifiée à la voix par l'utilisateur le 2026-10-09 dans les quatre combinaisons (journal : 1,15 à 1,3 s par énoncé, relance en 0,3 s au changement de langue, réglages conservés au redémarrage, aucune fuite). Traduction anglais vers français jugée « assez précise, pas parfaite ».
+
+- Deux listes dans les propriétés : langue parlée et langue des sous-titres (français, anglais; français vers anglais par défaut). La liste `languages` de `src/subtitle-source.c` est le seul endroit à compléter pour une langue de plus, avec le modèle `opus-mt-<parlée>-<sous-titres>` de chaque paire.
+- Mêmes langues des deux côtés : pas de traduction, les sous-titres sont la transcription.
+- Un changement de langue arrête la capture et la relance avec les bons modèles.
+- Modèle anglais vers français converti comme le premier et ajouté à la release `models-v1` (`opus-mt-en-fr-ct2-int8.zip`); CMake télécharge les deux paires (téléchargement vérifié). Limite vue à la conversion : « stream » est traduit par « ruisseau », le modèle ne connaît pas le vocabulaire du streaming.
+- Message d'erreur de modèle corrigé : il parlait seulement du modèle de détection de la voix.
+
 ## Prochaine tâche
 
-Reste du jalon 6 : choix des langues (français et anglais dans les deux sens, donc un second modèle de traduction et son téléchargement), présentation de l'état, messages d'erreur.
+Reste du jalon 6 : présentation de l'état et messages d'erreur.
 
 Décision du 2026-10-09 : l'écoute reste continue tant que la case est cochée, même quand la source n'est pas visible. L'utilisateur préfère ne pas perdre de mots au redémarrage (rechargement des modèles) et accepte le coût : environ 500 Mo de mémoire (mesuré avec les outils de mesure : 366 Mo pour la transcription `small`, 130 Mo pour la traduction), processeur sollicité seulement pendant la parole.
 

@@ -10,7 +10,7 @@ Les objectifs produit sont dans [docs/product.md](docs/product.md), l'architectu
 
 ## État courant
 
-Au 2026-10-09, les jalons 0 à 5 sont terminés. Le plugin, issu du modèle officiel `obs-plugintemplate`, compile avec les commandes de [docs/development.md](docs/development.md) et se charge dans OBS 32.2.2. Sa source `livesubtitles_source` propose le choix du microphone et une activation, capte l'audio de la source choisie dans un tampon borné, détecte la parole avec Silero VAD sur un fil dédié et, à la fin de chaque prise de parole, affiche sa traduction anglaise : Whisper `small` transcrit le français, puis un modèle OPUS-MT le traduit via CTranslate2 (option B, vérifiée à la voix le 2026-10-09). Pendant une longue prise de parole, un texte provisoire est affiché et mis à jour toutes les 2 à 3 secondes. Le texte tient sur deux lignes et disparaît en fondu après quelques secondes. La taille et la couleur du texte, la couleur et l'opacité du fond sont réglables (vérifié le 2026-10-09). Il n'y a pas encore de choix de langues. L'état détaillé et la reprise sont dans [NOTES.md](NOTES.md).
+Au 2026-10-09, les jalons 0 à 5 sont terminés. Le plugin, issu du modèle officiel `obs-plugintemplate`, compile avec les commandes de [docs/development.md](docs/development.md) et se charge dans OBS 32.2.2. Sa source `livesubtitles_source` propose le choix du microphone et une activation, capte l'audio de la source choisie dans un tampon borné, détecte la parole avec Silero VAD sur un fil dédié et, à la fin de chaque prise de parole, affiche sa traduction anglaise : Whisper `small` transcrit le français, puis un modèle OPUS-MT le traduit via CTranslate2 (option B, vérifiée à la voix le 2026-10-09). Pendant une longue prise de parole, un texte provisoire est affiché et mis à jour toutes les 2 à 3 secondes. Le texte tient sur deux lignes et disparaît en fondu après quelques secondes. La taille et la couleur du texte, la couleur et l'opacité du fond sont réglables (vérifié le 2026-10-09). La langue parlée et celle des sous-titres se choisissent entre français et anglais, dans les deux sens (vérifié le 2026-10-09). L'état détaillé et la reprise sont dans [NOTES.md](NOTES.md).
 
 **Prochaine étape : configuration et modèles (jalon 6).**
 
@@ -58,7 +58,9 @@ Intégrer la traduction locale français vers anglais et un moteur de sous-titre
 
 **Sortie attendue :** parcours audio vers sous-titre vérifié de bout en bout; tests ciblés du moteur de sous-titres.
 
-### 6. Configuration et modèles - À faire
+### 6. Configuration et modèles - En cours
+
+Faits et vérifiés le 2026-10-09 : réglages de lisibilité, choix des langues (français et anglais dans les deux sens), persistance des réglages. Restent la présentation de l'état et les messages d'erreur.
 
 Finaliser la configuration nécessaire au MVP : langues, persistance des réglages, présentation de l'état et réglages de lisibilité (couleur du texte, fond de couleur et d'opacité réglables, voir [docs/product.md](docs/product.md)). Automatiser l'installation ou la gestion des modèles si nécessaire; présenter des erreurs compréhensibles.
 
@@ -73,6 +75,8 @@ Compléter les tests pertinents, vérifier confidentialité, mémoire bornée, n
 ## Après le MVP - non planifié
 
 À réévaluer après stabilisation du MVP : options de style avancées pour les sous-titres, choix automatique des modèles selon le matériel, langues supplémentaires et éventuel portage macOS/Linux. Ces pistes ne doivent pas retarder le MVP.
+
+Idée de l'utilisateur notée le 2026-10-09, par curiosité et sans échéance : laisser chaque viewer choisir la langue de ses sous-titres. Le plugin seul ne le permet pas, puisque les sous-titres sont incrustés dans l'image commune à tous. Il faudrait envoyer le texte (jamais l'audio) à un service en ligne et l'afficher par une extension Twitch avec un menu de langue, en le retardant du délai du flux. Cela suppose un serveur, donc un mode à part et explicitement activé, contraire au fonctionnement local par défaut; à n'étudier qu'après le MVP.
 
 ## Décisions encore ouvertes
 
