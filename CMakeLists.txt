@@ -146,6 +146,7 @@ target_sources(
     src/subtitle-source.c
     src/audio-ring.c
     src/speech-detector.c
+    src/subtitle-engine.c
     src/voice-activity.c
     src/transcriber.c
     src/translator.cpp
@@ -165,6 +166,10 @@ if(ENABLE_TESTS)
   add_executable(speech-detector-test tests/speech-detector-test.c src/speech-detector.c)
   target_include_directories(speech-detector-test PRIVATE src)
   add_test(NAME speech-detector COMMAND speech-detector-test)
+
+  add_executable(subtitle-engine-test tests/subtitle-engine-test.c src/subtitle-engine.c)
+  target_include_directories(subtitle-engine-test PRIVATE src)
+  add_test(NAME subtitle-engine COMMAND subtitle-engine-test)
 
   # Runs the real model on the reference recording shipped with whisper.cpp.
   add_executable(voice-activity-test tests/voice-activity-test.c src/voice-activity.c src/speech-detector.c)

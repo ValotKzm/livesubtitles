@@ -26,6 +26,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #include "audio-ring.h"
 #include "speech-detector.h"
+#include "subtitle-engine.h"
 #include "transcriber.h"
 #include "translator.h"
 #include "voice-activity.h"
@@ -67,6 +68,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #define TEXT_BOX_HEIGHT 300
 
 #define STATUS_INTERVAL_SECONDS 0.25f
+/* The text fades out in this many steps, each one redrawing it. */
+#define OPACITY_STEPS 10
 #define START_RETRY_NS 1000000000ULL
 #define WORKER_ACTIVE_WAIT_MS 30
 #define WORKER_IDLE_WAIT_MS 250
@@ -96,7 +99,10 @@ struct subtitle_source {
 	float peak;
 	enum pipeline_state state;
 	bool speaking;
+	/* Latest translation, and a count of its changes so that the graphics
+	 * thread notices each new one. */
 	char *subtitle;
+	uint32_t subtitle_version;
 
 	/* The worker owns capture and speech processing for the whole life of
 	 * the source, so that neither ever runs on the graphics thread. */
@@ -128,6 +134,10 @@ struct subtitle_source {
 	/* Used by the graphics thread only. */
 	float status_elapsed;
 	char *status_text;
+	int status_opacity;
+	struct subtitle_engine engine;
+	uint32_t shown_version;
+	bool subtitle_seen;
 };
 
 static const char *subtitle_source_get_name(void *type_data)
@@ -165,18 +175,28 @@ static obs_source_t *create_text_source(void)
 	return text;
 }
 
-static void set_status_text(struct subtitle_source *context, const char *status)
+/* Opacity in percent. Does nothing when what is drawn would not change. */
+static void set_display_text(struct subtitle_source *context, const char *text, int opacity)
 {
-	if (!context->text || (context->status_text && strcmp(context->status_text, status) == 0))
+	if (!context->text)
+		return;
+	if (context->status_text && strcmp(context->status_text, text) == 0 && context->status_opacity == opacity)
 		return;
 
 	bfree(context->status_text);
-	context->status_text = bstrdup(status);
+	context->status_text = bstrdup(text);
+	context->status_opacity = opacity;
 
 	obs_data_t *settings = obs_data_create();
-	obs_data_set_string(settings, "text", status);
+	obs_data_set_string(settings, "text", text);
+	obs_data_set_int(settings, "opacity", opacity);
 	obs_source_update(context->text, settings);
 	obs_data_release(settings);
+}
+
+static void set_status_text(struct subtitle_source *context, const char *status)
+{
+	set_display_text(context, status, 100);
 }
 
 /* Called by libobs on the audio thread of the captured source, with audio in
@@ -250,6 +270,7 @@ static void stop_capture(struct subtitle_source *context)
 	context->speaking = false;
 	char *subtitle = context->subtitle;
 	context->subtitle = NULL;
+	context->subtitle_version++;
 	pthread_mutex_unlock(&context->mutex);
 	bfree(subtitle);
 
@@ -451,6 +472,7 @@ static void recognize_utterance(struct subtitle_source *context, bool final)
 		pthread_mutex_lock(&context->mutex);
 		char *previous = context->subtitle;
 		context->subtitle = subtitle;
+		context->subtitle_version++;
 		pthread_mutex_unlock(&context->mutex);
 		bfree(previous);
 	}
@@ -537,6 +559,35 @@ static void *worker_thread(void *data)
 	return NULL;
 }
 
+/* Hands each new translation to the subtitle engine and draws what the engine
+ * wants on screen. Returns false when there is no subtitle to draw. */
+static bool update_subtitle(struct subtitle_source *context)
+{
+	uint64_t now_ms = os_gettime_ns() / 1000000;
+
+	pthread_mutex_lock(&context->mutex);
+	bool changed = context->subtitle_version != context->shown_version;
+	char *subtitle = changed ? bstrdup(context->subtitle) : NULL;
+	context->shown_version = context->subtitle_version;
+	pthread_mutex_unlock(&context->mutex);
+
+	if (changed) {
+		/* No text means that the capture stopped. */
+		subtitle_engine_show(&context->engine, subtitle, now_ms);
+		context->subtitle_seen = subtitle != NULL;
+		bfree(subtitle);
+	}
+
+	float opacity = 0.0f;
+	const char *text = subtitle_engine_text(&context->engine, now_ms, &opacity);
+	if (!text)
+		return false;
+
+	int step = (int)(opacity * OPACITY_STEPS + 0.5f);
+	set_display_text(context, text, step * 100 / OPACITY_STEPS);
+	return true;
+}
+
 static void update_status(struct subtitle_source *context, float seconds)
 {
 	context->status_elapsed += seconds;
@@ -549,7 +600,6 @@ static void update_status(struct subtitle_source *context, float seconds)
 	bool has_choice = context->audio_source_uuid && *context->audio_source_uuid;
 	enum pipeline_state state = context->state;
 	bool speaking = context->speaking;
-	char *subtitle = bstrdup(context->subtitle);
 	float peak = context->peak;
 	context->peak = 0.0f;
 	pthread_mutex_unlock(&context->mutex);
@@ -564,8 +614,10 @@ static void update_status(struct subtitle_source *context, float seconds)
 		set_status_text(context, obs_module_text("StatusMicrophoneUnavailable"));
 	} else if (state == PIPELINE_IDLE) {
 		set_status_text(context, obs_module_text("StatusStarting"));
-	} else if (subtitle) {
-		set_status_text(context, subtitle);
+	} else if (context->subtitle_seen) {
+		/* Once subtitles have appeared, leave the image clear between
+		 * them instead of going back to the sound level. */
+		set_status_text(context, "");
 	} else {
 		float db = peak > 0.0f ? 20.0f * log10f(peak) : LEVEL_FLOOR_DB;
 		if (db < LEVEL_FLOOR_DB)
@@ -579,8 +631,6 @@ static void update_status(struct subtitle_source *context, float seconds)
 			 obs_module_text(speaking ? "StatusSpeech" : "StatusSilence"), level);
 		set_status_text(context, status);
 	}
-
-	bfree(subtitle);
 }
 
 static void subtitle_source_update(void *data, obs_data_t *settings)
@@ -628,6 +678,8 @@ static void *subtitle_source_create(obs_data_t *settings, obs_source_t *source)
 	context->stt_model_path = obs_module_file(STT_MODEL_FILE);
 	context->mt_model_path = obs_module_file(MT_MODEL_DIR);
 	context->status_elapsed = STATUS_INTERVAL_SECONDS;
+	struct subtitle_engine_params engine_params = subtitle_engine_default_params();
+	subtitle_engine_init(&context->engine, &engine_params);
 	subtitle_source_update(context, settings);
 
 	if (pthread_create(&context->worker, NULL, worker_thread, context) == 0)
@@ -660,6 +712,7 @@ static void subtitle_source_destroy(void *data)
 	bfree(context->mt_model_path);
 	bfree(context->audio_source_uuid);
 	bfree(context->status_text);
+	subtitle_engine_free(&context->engine);
 	bfree(context);
 }
 
@@ -667,6 +720,11 @@ static void subtitle_source_video_tick(void *data, float seconds)
 {
 	struct subtitle_source *context = data;
 
+	if (update_subtitle(context)) {
+		/* Refresh the status as soon as the subtitle is gone. */
+		context->status_elapsed = STATUS_INTERVAL_SECONDS;
+		return;
+	}
 	update_status(context, seconds);
 }
 

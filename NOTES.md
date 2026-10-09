@@ -37,9 +37,15 @@ Fusionné dans `main` le 2026-10-09 après essai à la voix : 13 énoncés et 13
 - Pendant qu'une passe tourne, la fin de parole n'est pas détectée : le texte final d'une longue phrase peut arriver plus d'une seconde plus tard qu'avant.
 - Coût : une inférence complète par passe, donc processeur chargé en continu pendant une longue prise de parole. Non mesuré pendant un jeu; les seuils sont `PARTIAL_FIRST_SAMPLES` et `PARTIAL_STEP_SAMPLES`.
 
-## Prochaine tâche : moteur de sous-titres (jalon 5)
+## Tâche en cours : moteur de sous-titres (jalon 5)
 
-Module indépendant d'OBS, avec ses tests (voir `docs/architecture.md`). À traiter d'abord, d'après l'essai du 2026-10-09 : quand l'utilisateur parle très longtemps sans s'arrêter, le texte affiché devient trop long (l'énoncé peut durer 20 s). Il faut donc n'afficher que la fin du texte (découpage en lignes, nombre de lignes borné), puis l'expiration et l'effacement progressif demandés.
+Branche `feat/subtitle-engine`, non commitée au 2026-10-09, plugin installé, **essai à la voix à faire**.
+
+- `src/subtitle-engine.c` (indépendant d'OBS, test `subtitle-engine`) : découpe le texte en lignes de 40 caractères au plus, ne garde que les 2 dernières, et le fait disparaître en fondu (0,6 s) après un temps d'affichage de 60 ms par caractère, borné entre 3 et 7 s. Chaque nouveau texte, provisoire ou final, remplace le précédent et relance ce temps.
+- `src/subtitle-source.c` : le worker publie la traduction avec un compteur de version; `video_tick` la passe au moteur et dessine ce qu'il renvoie. Le fondu passe par le réglage `opacity` de la source texte d'OBS, en 10 paliers.
+- Changement visible : une fois un premier sous-titre apparu, l'image reste vide entre deux sous-titres au lieu de revenir à la ligne « silence, niveau ». Cette ligne ne s'affiche plus qu'avant le premier sous-titre d'une capture.
+- À juger à l'essai : nombre de lignes et largeur (`subtitle_engine_default_params`), durée d'affichage, vitesse du fondu, et le fait que les lignes se redécoupent quand le texte provisoire change.
+- Reste ensuite du jalon 5 : rien d'autre de prévu; les réglages de couleur et de fond relèvent de la lisibilité (`docs/product.md`).
 
 ## Demandes de l'utilisateur pas encore traitées
 
