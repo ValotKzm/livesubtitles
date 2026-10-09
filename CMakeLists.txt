@@ -98,19 +98,23 @@ if(NOT EXISTS "${STT_MODEL_FILE}")
     EXPECTED_HASH SHA256=ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb
   )
 endif()
-# Our own conversion of the OPUS-MT model, published as a release of this repository: see docs/development.md.
-if(NOT EXISTS "${MT_MODEL_DIR}/model.bin")
-  message(STATUS "Downloading the translation model (61 MB)")
-  set(_mt_model_archive "${CMAKE_CURRENT_BINARY_DIR}/opus-mt-fr-en-ct2-int8.zip")
-  file(
-    DOWNLOAD
-    https://github.com/ValotKzm/livesubtitles/releases/download/models-v1/opus-mt-fr-en-ct2-int8.zip
-    "${_mt_model_archive}"
-    EXPECTED_HASH SHA256=281c06fa89a1f0a3bff47ffc3445fc5087c54bfbb50ed37816240a0b9c902b1f
-  )
-  file(ARCHIVE_EXTRACT INPUT "${_mt_model_archive}" DESTINATION "${MT_MODEL_DIR}")
-  file(REMOVE "${_mt_model_archive}")
-endif()
+# Our own conversions of the OPUS-MT models, published as a release of this repository: see docs/development.md.
+set(_mt_model_hash_fr-en 281c06fa89a1f0a3bff47ffc3445fc5087c54bfbb50ed37816240a0b9c902b1f)
+set(_mt_model_hash_en-fr b852892f3f2cf862f42a16894cecedc8c368e29f153a123d33538a4ce7d7b4fe)
+foreach(_mt_pair fr-en en-fr)
+  if(NOT EXISTS "${MODEL_DIR}/opus-mt-${_mt_pair}/model.bin")
+    message(STATUS "Downloading the ${_mt_pair} translation model (61 MB)")
+    set(_mt_model_archive "${CMAKE_CURRENT_BINARY_DIR}/opus-mt-${_mt_pair}-ct2-int8.zip")
+    file(
+      DOWNLOAD
+      https://github.com/ValotKzm/livesubtitles/releases/download/models-v1/opus-mt-${_mt_pair}-ct2-int8.zip
+      "${_mt_model_archive}"
+      EXPECTED_HASH SHA256=${_mt_model_hash_${_mt_pair}}
+    )
+    file(ARCHIVE_EXTRACT INPUT "${_mt_model_archive}" DESTINATION "${MODEL_DIR}/opus-mt-${_mt_pair}")
+    file(REMOVE "${_mt_model_archive}")
+  endif()
+endforeach()
 
 include(compilerconfig)
 include(defaults)

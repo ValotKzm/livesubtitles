@@ -47,6 +47,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #define SETTING_AUDIO_SOURCE "audio_source"
 #define SETTING_ENABLED "enabled"
+#define SETTING_SPOKEN_LANGUAGE "spoken_language"
+#define SETTING_SUBTITLE_LANGUAGE "subtitle_language"
 #define SETTING_FONT_SIZE "font_size"
 #define SETTING_TEXT_COLOR "text_color"
 #define SETTING_BACKGROUND_COLOR "background_color"
@@ -63,8 +65,10 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #define VAD_MODEL_FILE "models/ggml-silero-v6.2.0.bin"
 #define STT_MODEL_FILE "models/ggml-small-q5_1.bin"
-#define MT_MODEL_DIR "models/opus-mt-fr-en"
-#define SPOKEN_LANGUAGE "fr"
+/* One translation model per pair of languages, named after their codes. */
+#define MT_MODEL_DIR_FORMAT "models/opus-mt-%s-%s"
+#define DEFAULT_SPOKEN_LANGUAGE "fr"
+#define DEFAULT_SUBTITLE_LANGUAGE "en"
 #define STT_MAX_THREADS 8
 /* More threads than this did not make translation faster. */
 #define MT_MAX_THREADS 4
@@ -94,6 +98,28 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #define WORKER_IDLE_WAIT_MS 250
 #define LEVEL_FLOOR_DB -60.0f
 
+/* Languages offered, as the codes the speech model and the names of the
+ * translation models use, with the locale key of their name. */
+static const struct {
+	const char *code;
+	const char *name_key;
+} languages[] = {
+	{"fr", "LanguageFrench"},
+	{"en", "LanguageEnglish"},
+};
+#define LANGUAGE_COUNT (sizeof(languages) / sizeof(languages[0]))
+
+/* Returns the code as a constant string, or the fallback if it is not one
+ * of the languages offered. */
+static const char *known_language(const char *code, const char *fallback)
+{
+	for (size_t i = 0; i < LANGUAGE_COUNT; i++) {
+		if (code && strcmp(code, languages[i].code) == 0)
+			return languages[i].code;
+	}
+	return fallback;
+}
+
 enum pipeline_state {
 	PIPELINE_IDLE,
 	PIPELINE_SOURCE_UNAVAILABLE,
@@ -106,7 +132,6 @@ struct subtitle_source {
 	obs_source_t *text;
 	char *vad_model_path;
 	char *stt_model_path;
-	char *mt_model_path;
 
 	/* Guards the fields below, shared between the settings, graphics,
 	 * audio and worker threads. Never held while calling into another
@@ -114,6 +139,9 @@ struct subtitle_source {
 	pthread_mutex_t mutex;
 	bool enabled;
 	char *audio_source_uuid;
+	/* Constant strings from the list of languages. */
+	const char *spoken_language;
+	const char *subtitle_language;
 	uint32_t font_size;
 	uint32_t text_color;
 	uint32_t background_color;
@@ -141,7 +169,10 @@ struct subtitle_source {
 	struct voice_activity *vad;
 	struct speech_detector detector;
 	struct transcriber *transcriber;
+	/* None when the subtitles are in the spoken language. */
 	struct translator *translator;
+	const char *capture_spoken_language;
+	const char *capture_subtitle_language;
 	struct audio_ring preroll;
 	float *utterance;
 	size_t utterance_size;
@@ -387,7 +418,8 @@ static void log_model_error(struct subtitle_source *context, const char *file)
 	context->model_error_logged = true;
 }
 
-static enum pipeline_state start_capture(struct subtitle_source *context, const char *uuid)
+static enum pipeline_state start_capture(struct subtitle_source *context, const char *uuid, const char *spoken,
+					  const char *subtitle)
 {
 	struct obs_audio_info oai;
 	if (!obs_get_audio_info(&oai))
@@ -412,7 +444,7 @@ static enum pipeline_state start_capture(struct subtitle_source *context, const 
 	/* The recognition model writes what was said; translation follows. */
 	struct transcriber_params transcriber_params = {
 		.model_path = context->stt_model_path,
-		.language = SPOKEN_LANGUAGE,
+		.language = spoken,
 		.translate = false,
 		.threads = recognition_threads(),
 		/* The fitted context is faster on average but showed slow
@@ -428,20 +460,27 @@ static enum pipeline_state start_capture(struct subtitle_source *context, const 
 		return PIPELINE_MODEL_ERROR;
 	}
 
-	int translation_threads = recognition_threads();
-	struct translator_params translator_params = {
-		.model_dir = context->mt_model_path,
-		.threads = translation_threads > MT_MAX_THREADS ? MT_MAX_THREADS : translation_threads,
-	};
-	context->translator = translator_create(&translator_params);
-	if (!context->translator) {
-		log_model_error(context, MT_MODEL_DIR);
-		voice_activity_destroy(context->vad);
-		context->vad = NULL;
-		transcriber_destroy(context->transcriber);
-		context->transcriber = NULL;
-		obs_source_release(source);
-		return PIPELINE_MODEL_ERROR;
+	/* Subtitles in the spoken language need no translation. */
+	if (strcmp(spoken, subtitle) != 0) {
+		char model_dir[64];
+		snprintf(model_dir, sizeof(model_dir), MT_MODEL_DIR_FORMAT, spoken, subtitle);
+		char *model_path = obs_module_file(model_dir);
+		int translation_threads = recognition_threads();
+		struct translator_params translator_params = {
+			.model_dir = model_path,
+			.threads = translation_threads > MT_MAX_THREADS ? MT_MAX_THREADS : translation_threads,
+		};
+		context->translator = model_path ? translator_create(&translator_params) : NULL;
+		bfree(model_path);
+		if (!context->translator) {
+			log_model_error(context, model_dir);
+			voice_activity_destroy(context->vad);
+			context->vad = NULL;
+			transcriber_destroy(context->transcriber);
+			context->transcriber = NULL;
+			obs_source_release(source);
+			return PIPELINE_MODEL_ERROR;
+		}
 	}
 	context->model_error_logged = false;
 
@@ -474,8 +513,10 @@ static enum pipeline_state start_capture(struct subtitle_source *context, const 
 	/* The reference keeps the captured source alive while the callback is
 	 * registered; the worker drops it when the user removes that source. */
 	context->capture_source = source;
+	context->capture_spoken_language = spoken;
+	context->capture_subtitle_language = subtitle;
 	obs_source_add_audio_capture_callback(source, audio_capture_callback, context);
-	obs_log(LOG_INFO, "audio capture started");
+	obs_log(LOG_INFO, "audio capture started, %s to %s", spoken, subtitle);
 	return PIPELINE_LISTENING;
 }
 
@@ -485,13 +526,17 @@ static void reconcile_capture(struct subtitle_source *context)
 	pthread_mutex_lock(&context->mutex);
 	bool enabled = context->enabled;
 	char *uuid = bstrdup(context->audio_source_uuid);
+	const char *spoken = context->spoken_language;
+	const char *subtitle = context->subtitle_language;
 	pthread_mutex_unlock(&context->mutex);
 
 	bool wanted = enabled && uuid && *uuid;
 
 	if (context->capture_source) {
+		/* A change of language starts over with the models it needs. */
 		const char *current = obs_source_get_uuid(context->capture_source);
-		if (!wanted || obs_source_removed(context->capture_source) || strcmp(current, uuid) != 0)
+		if (!wanted || obs_source_removed(context->capture_source) || strcmp(current, uuid) != 0 ||
+		    context->capture_spoken_language != spoken || context->capture_subtitle_language != subtitle)
 			stop_capture(context);
 	}
 
@@ -504,7 +549,7 @@ static void reconcile_capture(struct subtitle_source *context)
 		uint64_t now = os_gettime_ns();
 		if (!context->last_start_attempt_ns || now - context->last_start_attempt_ns >= START_RETRY_NS) {
 			context->last_start_attempt_ns = now;
-			set_pipeline_state(context, start_capture(context, uuid));
+			set_pipeline_state(context, start_capture(context, uuid, spoken, subtitle));
 		}
 	}
 
@@ -521,11 +566,18 @@ static void recognize_utterance(struct subtitle_source *context, bool final)
 
 	/* The model describes non-speech sounds in brackets or parentheses,
 	 * such as "[BLANK_AUDIO]"; those are not subtitles. */
-	char *translation = NULL;
+	char *subtitle = NULL;
 	if (text && *text && *text != '[' && *text != '(') {
-		uint64_t translation_begin = os_gettime_ns();
-		translation = translator_run(context->translator, text);
-		context->translation_total_ns += os_gettime_ns() - translation_begin;
+		if (context->translator) {
+			uint64_t translation_begin = os_gettime_ns();
+			char *translation = translator_run(context->translator, text);
+			context->translation_total_ns += os_gettime_ns() - translation_begin;
+			if (translation && *translation)
+				subtitle = bstrdup(translation);
+			translator_free_text(translation);
+		} else {
+			subtitle = bstrdup(text);
+		}
 	}
 	transcriber_free_text(text);
 	uint64_t elapsed = os_gettime_ns() - begin;
@@ -542,9 +594,7 @@ static void recognize_utterance(struct subtitle_source *context, bool final)
 	if (elapsed > context->inference_max_ns)
 		context->inference_max_ns = elapsed;
 
-	if (translation && *translation) {
-		char *subtitle = bstrdup(translation);
-
+	if (subtitle) {
 		pthread_mutex_lock(&context->mutex);
 		char *previous = context->subtitle;
 		context->subtitle = subtitle;
@@ -552,7 +602,6 @@ static void recognize_utterance(struct subtitle_source *context, bool final)
 		pthread_mutex_unlock(&context->mutex);
 		bfree(previous);
 	}
-	translator_free_text(translation);
 }
 
 /* Shows provisional text during a long stretch of speech. Only called once
@@ -718,6 +767,10 @@ static void subtitle_source_update(void *data, obs_data_t *settings)
 	struct subtitle_source *context = data;
 	bool enabled = obs_data_get_bool(settings, SETTING_ENABLED);
 	char *uuid = bstrdup(obs_data_get_string(settings, SETTING_AUDIO_SOURCE));
+	const char *spoken =
+		known_language(obs_data_get_string(settings, SETTING_SPOKEN_LANGUAGE), DEFAULT_SPOKEN_LANGUAGE);
+	const char *subtitle =
+		known_language(obs_data_get_string(settings, SETTING_SUBTITLE_LANGUAGE), DEFAULT_SUBTITLE_LANGUAGE);
 	long long font_size = obs_data_get_int(settings, SETTING_FONT_SIZE);
 	if (font_size < MIN_FONT_SIZE)
 		font_size = MIN_FONT_SIZE;
@@ -735,6 +788,8 @@ static void subtitle_source_update(void *data, obs_data_t *settings)
 	char *previous = context->audio_source_uuid;
 	context->enabled = enabled;
 	context->audio_source_uuid = uuid;
+	context->spoken_language = spoken;
+	context->subtitle_language = subtitle;
 	context->font_size = (uint32_t)font_size;
 	context->text_color = text_color;
 	context->background_color = background_color;
@@ -772,7 +827,6 @@ static void *subtitle_source_create(obs_data_t *settings, obs_source_t *source)
 	context->text = create_text_source();
 	context->vad_model_path = obs_module_file(VAD_MODEL_FILE);
 	context->stt_model_path = obs_module_file(STT_MODEL_FILE);
-	context->mt_model_path = obs_module_file(MT_MODEL_DIR);
 	context->status_elapsed = STATUS_INTERVAL_SECONDS;
 	struct subtitle_engine_params engine_params = subtitle_engine_default_params();
 	subtitle_engine_init(&context->engine, &engine_params);
@@ -805,7 +859,6 @@ static void subtitle_source_destroy(void *data)
 	bfree(context->subtitle);
 	bfree(context->vad_model_path);
 	bfree(context->stt_model_path);
-	bfree(context->mt_model_path);
 	bfree(context->audio_source_uuid);
 	bfree(context->status_text);
 	subtitle_engine_free(&context->engine);
@@ -827,6 +880,8 @@ static void subtitle_source_video_tick(void *data, float seconds)
 static void subtitle_source_get_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_string(settings, SETTING_AUDIO_SOURCE, "");
+	obs_data_set_default_string(settings, SETTING_SPOKEN_LANGUAGE, DEFAULT_SPOKEN_LANGUAGE);
+	obs_data_set_default_string(settings, SETTING_SUBTITLE_LANGUAGE, DEFAULT_SUBTITLE_LANGUAGE);
 	obs_data_set_default_bool(settings, SETTING_ENABLED, false);
 	obs_data_set_default_int(settings, SETTING_FONT_SIZE, DEFAULT_FONT_SIZE);
 	obs_data_set_default_int(settings, SETTING_TEXT_COLOR, DEFAULT_TEXT_COLOR);
@@ -843,6 +898,14 @@ static bool add_audio_source_to_list(void *param, obs_source_t *source)
 	return true;
 }
 
+static void add_language_list(obs_properties_t *props, const char *setting, const char *label_key)
+{
+	obs_property_t *list = obs_properties_add_list(props, setting, obs_module_text(label_key), OBS_COMBO_TYPE_LIST,
+						       OBS_COMBO_FORMAT_STRING);
+	for (size_t i = 0; i < LANGUAGE_COUNT; i++)
+		obs_property_list_add_string(list, obs_module_text(languages[i].name_key), languages[i].code);
+}
+
 static obs_properties_t *subtitle_source_get_properties(void *data)
 {
 	UNUSED_PARAMETER(data);
@@ -853,6 +916,8 @@ static obs_properties_t *subtitle_source_get_properties(void *data)
 	obs_property_list_add_string(list, obs_module_text("MicrophoneNone"), "");
 	obs_enum_sources(add_audio_source_to_list, list);
 
+	add_language_list(props, SETTING_SPOKEN_LANGUAGE, "SpokenLanguage");
+	add_language_list(props, SETTING_SUBTITLE_LANGUAGE, "SubtitleLanguage");
 	obs_properties_add_bool(props, SETTING_ENABLED, obs_module_text("Enabled"));
 
 	obs_properties_add_int_slider(props, SETTING_FONT_SIZE, obs_module_text("FontSize"), MIN_FONT_SIZE, MAX_FONT_SIZE,
