@@ -34,10 +34,28 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 /* Text is drawn by a private instance of the built-in OBS text source. */
 #define TEXT_SOURCE_ID "text_gdiplus"
 #define TEXT_FONT_FACE "Arial"
-#define TEXT_FONT_SIZE 72
+/* Font height in pixels. Two lines of the largest size still fit in the box. */
+#define DEFAULT_FONT_SIZE 72
+#define MIN_FONT_SIZE 36
+#define MAX_FONT_SIZE 120
+/* Width of an average character of running text in this font, as a share
+ * of the font size (measured with GDI+ on English and French sentences),
+ * and the share of the box a full line may take. Text in capitals is wider:
+ * what does not fit is scaled down when drawn. */
+#define AVERAGE_CHAR_WIDTH 0.445f
+#define LINE_WIDTH_SHARE 0.97f
 
 #define SETTING_AUDIO_SOURCE "audio_source"
 #define SETTING_ENABLED "enabled"
+#define SETTING_FONT_SIZE "font_size"
+#define SETTING_TEXT_COLOR "text_color"
+#define SETTING_BACKGROUND_COLOR "background_color"
+#define SETTING_BACKGROUND_OPACITY "background_opacity"
+
+/* White on a half-transparent black band reads on any image. */
+#define DEFAULT_TEXT_COLOR 0xFFFFFF
+#define DEFAULT_BACKGROUND_COLOR 0x000000
+#define DEFAULT_BACKGROUND_OPACITY 50
 
 /* Speech processing works on 16 kHz mono; at most this much audio is kept. */
 #define CAPTURE_SAMPLE_RATE 16000
@@ -63,7 +81,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #define PARTIAL_FIRST_SAMPLES (CAPTURE_SAMPLE_RATE * 3)
 #define PARTIAL_STEP_SAMPLES (CAPTURE_SAMPLE_RATE * 2)
 
-/* Box the subtitles are laid out in, in pixels. */
+/* Box the subtitles are laid out in, in pixels: the text is centered at its
+ * bottom, so that it stays in place in the scene whatever its length. */
 #define TEXT_BOX_WIDTH 1600
 #define TEXT_BOX_HEIGHT 300
 
@@ -95,6 +114,10 @@ struct subtitle_source {
 	pthread_mutex_t mutex;
 	bool enabled;
 	char *audio_source_uuid;
+	uint32_t font_size;
+	uint32_t text_color;
+	uint32_t background_color;
+	uint32_t background_opacity;
 	struct audio_ring ring;
 	float peak;
 	enum pipeline_state state;
@@ -135,6 +158,10 @@ struct subtitle_source {
 	float status_elapsed;
 	char *status_text;
 	int status_opacity;
+	uint32_t drawn_font_size;
+	uint32_t drawn_text_color;
+	uint32_t drawn_background_color;
+	uint32_t drawn_background_opacity;
 	struct subtitle_engine engine;
 	uint32_t shown_version;
 	bool subtitle_seen;
@@ -157,14 +184,11 @@ static obs_source_t *create_text_source(void)
 	obs_data_t *settings = obs_data_create();
 	obs_data_t *font = obs_data_create();
 	obs_data_set_string(font, "face", TEXT_FONT_FACE);
-	obs_data_set_int(font, "size", TEXT_FONT_SIZE);
+	obs_data_set_int(font, "size", DEFAULT_FONT_SIZE);
 	obs_data_set_obj(settings, "font", font);
-	obs_data_set_bool(settings, "extents", true);
-	obs_data_set_bool(settings, "extents_wrap", true);
-	obs_data_set_int(settings, "extents_cx", TEXT_BOX_WIDTH);
-	obs_data_set_int(settings, "extents_cy", TEXT_BOX_HEIGHT);
+	/* No fixed extents: the text source is as large as its text, and so
+	 * is the background it draws. The lines are already cut to length. */
 	obs_data_set_string(settings, "align", "center");
-	obs_data_set_string(settings, "valign", "bottom");
 
 	obs_source_t *text = obs_source_create_private(id, NULL, settings);
 	if (!text)
@@ -175,23 +199,75 @@ static obs_source_t *create_text_source(void)
 	return text;
 }
 
+/* Puts a space at both ends of each line, so that the background does not
+ * stop right at the first and last letters. */
+static char *pad_lines(const char *text)
+{
+	size_t lines = 1;
+	for (const char *c = text; *c; c++) {
+		if (*c == '\n')
+			lines++;
+	}
+
+	char *padded = bmalloc(strlen(text) + lines * 2 + 1);
+	char *out = padded;
+	*out++ = ' ';
+	for (const char *c = text; *c; c++) {
+		if (*c == '\n') {
+			*out++ = ' ';
+			*out++ = '\n';
+			*out++ = ' ';
+		} else {
+			*out++ = *c;
+		}
+	}
+	*out++ = ' ';
+	*out = '\0';
+	return padded;
+}
+
 /* Opacity in percent. Does nothing when what is drawn would not change. */
 static void set_display_text(struct subtitle_source *context, const char *text, int opacity)
 {
 	if (!context->text)
 		return;
-	if (context->status_text && strcmp(context->status_text, text) == 0 && context->status_opacity == opacity)
+
+	pthread_mutex_lock(&context->mutex);
+	uint32_t font_size = context->font_size;
+	uint32_t text_color = context->text_color;
+	uint32_t background_color = context->background_color;
+	uint32_t background_opacity = context->background_opacity;
+	pthread_mutex_unlock(&context->mutex);
+
+	if (context->status_text && strcmp(context->status_text, text) == 0 && context->status_opacity == opacity &&
+	    context->drawn_font_size == font_size && context->drawn_text_color == text_color && context->drawn_background_color == background_color &&
+	    context->drawn_background_opacity == background_opacity)
 		return;
 
 	bfree(context->status_text);
 	context->status_text = bstrdup(text);
 	context->status_opacity = opacity;
+	context->drawn_font_size = font_size;
+	context->drawn_text_color = text_color;
+	context->drawn_background_color = background_color;
+	context->drawn_background_opacity = background_opacity;
 
+	char *padded = *text ? pad_lines(text) : bstrdup("");
 	obs_data_t *settings = obs_data_create();
-	obs_data_set_string(settings, "text", text);
+	obs_data_t *font = obs_data_create();
+	obs_data_set_string(font, "face", TEXT_FONT_FACE);
+	obs_data_set_int(font, "size", font_size);
+	obs_data_set_obj(settings, "font", font);
+	obs_data_release(font);
+	obs_data_set_string(settings, "text", padded);
+	obs_data_set_int(settings, "color", text_color);
 	obs_data_set_int(settings, "opacity", opacity);
+	obs_data_set_int(settings, "bk_color", background_color);
+	/* The background fades out with the text. */
+	obs_data_set_int(settings, "bk_opacity", background_opacity * opacity / 100);
 	obs_source_update(context->text, settings);
 	obs_data_release(settings);
+	bfree(padded);
 }
 
 static void set_status_text(struct subtitle_source *context, const char *status)
@@ -569,9 +645,13 @@ static bool update_subtitle(struct subtitle_source *context)
 	bool changed = context->subtitle_version != context->shown_version;
 	char *subtitle = changed ? bstrdup(context->subtitle) : NULL;
 	context->shown_version = context->subtitle_version;
+	uint32_t font_size = context->font_size;
 	pthread_mutex_unlock(&context->mutex);
 
 	if (changed) {
+		/* As many characters as fill the width of the box at this size. */
+		context->engine.params.line_chars =
+			(uint32_t)(TEXT_BOX_WIDTH * LINE_WIDTH_SHARE / (AVERAGE_CHAR_WIDTH * (float)font_size));
 		/* No text means that the capture stopped. */
 		subtitle_engine_show(&context->engine, subtitle, now_ms);
 		context->subtitle_seen = subtitle != NULL;
@@ -638,11 +718,27 @@ static void subtitle_source_update(void *data, obs_data_t *settings)
 	struct subtitle_source *context = data;
 	bool enabled = obs_data_get_bool(settings, SETTING_ENABLED);
 	char *uuid = bstrdup(obs_data_get_string(settings, SETTING_AUDIO_SOURCE));
+	long long font_size = obs_data_get_int(settings, SETTING_FONT_SIZE);
+	if (font_size < MIN_FONT_SIZE)
+		font_size = MIN_FONT_SIZE;
+	if (font_size > MAX_FONT_SIZE)
+		font_size = MAX_FONT_SIZE;
+	uint32_t text_color = (uint32_t)obs_data_get_int(settings, SETTING_TEXT_COLOR) & 0xFFFFFF;
+	uint32_t background_color = (uint32_t)obs_data_get_int(settings, SETTING_BACKGROUND_COLOR) & 0xFFFFFF;
+	long long background_opacity = obs_data_get_int(settings, SETTING_BACKGROUND_OPACITY);
+	if (background_opacity < 0)
+		background_opacity = 0;
+	if (background_opacity > 100)
+		background_opacity = 100;
 
 	pthread_mutex_lock(&context->mutex);
 	char *previous = context->audio_source_uuid;
 	context->enabled = enabled;
 	context->audio_source_uuid = uuid;
+	context->font_size = (uint32_t)font_size;
+	context->text_color = text_color;
+	context->background_color = background_color;
+	context->background_opacity = (uint32_t)background_opacity;
 	pthread_mutex_unlock(&context->mutex);
 
 	bfree(previous);
@@ -732,6 +828,10 @@ static void subtitle_source_get_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_string(settings, SETTING_AUDIO_SOURCE, "");
 	obs_data_set_default_bool(settings, SETTING_ENABLED, false);
+	obs_data_set_default_int(settings, SETTING_FONT_SIZE, DEFAULT_FONT_SIZE);
+	obs_data_set_default_int(settings, SETTING_TEXT_COLOR, DEFAULT_TEXT_COLOR);
+	obs_data_set_default_int(settings, SETTING_BACKGROUND_COLOR, DEFAULT_BACKGROUND_COLOR);
+	obs_data_set_default_int(settings, SETTING_BACKGROUND_OPACITY, DEFAULT_BACKGROUND_OPACITY);
 }
 
 static bool add_audio_source_to_list(void *param, obs_source_t *source)
@@ -754,19 +854,27 @@ static obs_properties_t *subtitle_source_get_properties(void *data)
 	obs_enum_sources(add_audio_source_to_list, list);
 
 	obs_properties_add_bool(props, SETTING_ENABLED, obs_module_text("Enabled"));
+
+	obs_properties_add_int_slider(props, SETTING_FONT_SIZE, obs_module_text("FontSize"), MIN_FONT_SIZE, MAX_FONT_SIZE,
+				      2);
+	obs_properties_add_color(props, SETTING_TEXT_COLOR, obs_module_text("TextColor"));
+	obs_properties_add_color(props, SETTING_BACKGROUND_COLOR, obs_module_text("BackgroundColor"));
+	obs_property_t *opacity = obs_properties_add_int_slider(props, SETTING_BACKGROUND_OPACITY,
+								obs_module_text("BackgroundOpacity"), 0, 100, 1);
+	obs_property_int_set_suffix(opacity, " %");
 	return props;
 }
 
 static uint32_t subtitle_source_get_width(void *data)
 {
-	struct subtitle_source *context = data;
-	return context->text ? obs_source_get_width(context->text) : 0;
+	UNUSED_PARAMETER(data);
+	return TEXT_BOX_WIDTH;
 }
 
 static uint32_t subtitle_source_get_height(void *data)
 {
-	struct subtitle_source *context = data;
-	return context->text ? obs_source_get_height(context->text) : 0;
+	UNUSED_PARAMETER(data);
+	return TEXT_BOX_HEIGHT;
 }
 
 static void subtitle_source_video_render(void *data, gs_effect_t *effect)
@@ -774,8 +882,28 @@ static void subtitle_source_video_render(void *data, gs_effect_t *effect)
 	UNUSED_PARAMETER(effect);
 
 	struct subtitle_source *context = data;
-	if (context->text)
-		obs_source_video_render(context->text);
+	if (!context->text)
+		return;
+
+	float width = (float)obs_source_get_width(context->text);
+	float height = (float)obs_source_get_height(context->text);
+	if (width <= 0.0f || height <= 0.0f)
+		return;
+
+	/* Centered at the bottom of the box, and scaled down if a line of
+	 * wide characters would stick out of it. */
+	float scale = 1.0f;
+	if (width > (float)TEXT_BOX_WIDTH)
+		scale = (float)TEXT_BOX_WIDTH / width;
+	if (height * scale > (float)TEXT_BOX_HEIGHT)
+		scale = (float)TEXT_BOX_HEIGHT / height;
+	float x = ((float)TEXT_BOX_WIDTH - width * scale) / 2.0f;
+	float y = (float)TEXT_BOX_HEIGHT - height * scale;
+	gs_matrix_push();
+	gs_matrix_translate3f(x, y, 0.0f);
+	gs_matrix_scale3f(scale, scale, 1.0f);
+	obs_source_video_render(context->text);
+	gs_matrix_pop();
 }
 
 struct obs_source_info subtitle_source_info = {
