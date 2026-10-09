@@ -10,9 +10,9 @@ Les objectifs produit sont dans [docs/product.md](docs/product.md), l'architectu
 
 ## État courant
 
-Au 2026-10-09, les jalons 0 à 4 sont terminés, ainsi que la traduction du jalon 5. Le plugin, issu du modèle officiel `obs-plugintemplate`, compile avec les commandes de [docs/development.md](docs/development.md) et se charge dans OBS 32.2.2. Sa source `livesubtitles_source` propose le choix du microphone et une activation, capte l'audio de la source choisie dans un tampon borné, détecte la parole avec Silero VAD sur un fil dédié et, à la fin de chaque prise de parole, affiche sa traduction anglaise : Whisper `small` transcrit le français, puis un modèle OPUS-MT le traduit via CTranslate2 (option B, vérifiée à la voix le 2026-10-09). Pendant une longue prise de parole, un texte provisoire est affiché et mis à jour toutes les 2 à 3 secondes. Il n'y a pas encore d'expiration ni de découpage du texte, de choix de langues ni de réglages de style. L'état détaillé et la reprise sont dans [NOTES.md](NOTES.md).
+Au 2026-10-09, les jalons 0 à 5 sont terminés. Le plugin, issu du modèle officiel `obs-plugintemplate`, compile avec les commandes de [docs/development.md](docs/development.md) et se charge dans OBS 32.2.2. Sa source `livesubtitles_source` propose le choix du microphone et une activation, capte l'audio de la source choisie dans un tampon borné, détecte la parole avec Silero VAD sur un fil dédié et, à la fin de chaque prise de parole, affiche sa traduction anglaise : Whisper `small` transcrit le français, puis un modèle OPUS-MT le traduit via CTranslate2 (option B, vérifiée à la voix le 2026-10-09). Pendant une longue prise de parole, un texte provisoire est affiché et mis à jour toutes les 2 à 3 secondes. Le texte tient sur deux lignes et disparaît en fondu après quelques secondes. Il n'y a pas encore de choix de langues ni de réglages de style. L'état détaillé et la reprise sont dans [NOTES.md](NOTES.md).
 
-**Prochaine étape : moteur de sous-titres indépendant d'OBS (jalon 5) : découpage d'un texte trop long, expiration et effacement progressif.**
+**Prochaine étape : configuration et modèles (jalon 6).**
 
 ## Jalons
 
@@ -50,9 +50,9 @@ Intégrer le backend STT choisi derrière une interface. Produire des résultats
 
 **Sortie attendue :** tests sur audio de référence et mesure initiale de la latence de transcription.
 
-### 5. Traduction et sous-titres - En cours
+### 5. Traduction et sous-titres - Terminé
 
-Traduction locale français vers anglais en étape distincte : terminée le 2026-10-09, vérifiée à la voix. Moteur de sous-titres : à faire. Constat de l'essai du 2026-10-09 : quand on parle très longtemps sans pause, le texte affiché devient trop long.
+Traduction locale français vers anglais en étape distincte : terminée le 2026-10-09, vérifiée à la voix. Moteur de sous-titres (deux lignes, expiration, fondu) : terminé le 2026-10-09, vérifié à la voix.
 
 Intégrer la traduction locale français vers anglais et un moteur de sous-titres indépendant d'OBS. Gérer le remplacement provisoire/final, l'expiration avec effacement progressif et le rendu du résultat dans la source.
 
