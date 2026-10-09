@@ -37,13 +37,21 @@ Fusionné dans `main` le 2026-10-09 après essai à la voix : 13 énoncés et 13
 - Pendant qu'une passe tourne, la fin de parole n'est pas détectée : le texte final d'une longue phrase peut arriver plus d'une seconde plus tard qu'avant.
 - Coût : une inférence complète par passe, donc processeur chargé en continu pendant une longue prise de parole. Non mesuré pendant un jeu; les seuils sont `PARTIAL_FIRST_SAMPLES` et `PARTIAL_STEP_SAMPLES`.
 
-## Prochaine tâche : moteur de sous-titres (jalon 5)
+## Dernière tâche : moteur de sous-titres (jalon 5)
 
-Module indépendant d'OBS, avec ses tests (voir `docs/architecture.md`). À traiter d'abord, d'après l'essai du 2026-10-09 : quand l'utilisateur parle très longtemps sans s'arrêter, le texte affiché devient trop long (l'énoncé peut durer 20 s). Il faut donc n'afficher que la fin du texte (découpage en lignes, nombre de lignes borné), puis l'expiration et l'effacement progressif demandés.
+Fusionné dans `main` le 2026-10-09 après essai à la voix (17 énoncés, 30 passes provisoires, 1,7 s en moyenne par passe, fermeture d'OBS propre avec la source encore présente). Rendu validé tel quel par l'utilisateur : durée d'affichage, fondu, deux lignes de 40 caractères, image vide entre deux sous-titres. Aucune branche de travail ouverte.
+
+- `src/subtitle-engine.c` (indépendant d'OBS, test `subtitle-engine`) : découpe le texte en lignes de 40 caractères au plus, ne garde que les 2 dernières, et le fait disparaître en fondu (0,6 s) après un temps d'affichage de 60 ms par caractère, borné entre 3 et 7 s. Chaque nouveau texte, provisoire ou final, remplace le précédent et relance ce temps.
+- `src/subtitle-source.c` : le worker publie la traduction avec un compteur de version; `video_tick` la passe au moteur et dessine ce qu'il renvoie. Le fondu passe par le réglage `opacity` de la source texte d'OBS, en 10 paliers.
+- Changement visible : une fois un premier sous-titre apparu, l'image reste vide entre deux sous-titres au lieu de revenir à la ligne « silence, niveau ». Cette ligne ne s'affiche plus qu'avant le premier sous-titre d'une capture.
+- Les valeurs sont dans `subtitle_engine_default_params`.
+
+## Prochaine tâche
+
+Jalon 6 (configuration et modèles) : lire `PLAN.md` et `docs/product.md` avant de commencer. Demandes de l'utilisateur en attente ci-dessous : réglages de couleur et de fond, choix des langues.
 
 ## Demandes de l'utilisateur pas encore traitées
 
-- Effacement progressif du texte pour ne pas surcharger l'image.
 - Réglages de couleur du texte et de fond avec opacité.
 - Choix libre de la langue parlée et de la langue des sous-titres (français, anglais, russe, espagnol à terme).
 - Préférence pour peu de modèles : un seul modèle de reconnaissance, et seulement le modèle de traduction de la paire choisie.
