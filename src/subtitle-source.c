@@ -22,7 +22,6 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <util/threading.h>
 #include <plugin-support.h>
 
-#include <math.h>
 
 #include "audio-ring.h"
 #include "speech-detector.h"
@@ -47,6 +46,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #define SETTING_AUDIO_SOURCE "audio_source"
 #define SETTING_ENABLED "enabled"
+/* Shown in the properties, not stored. */
+#define PROPERTY_STATUS "status"
 #define SETTING_SPOKEN_LANGUAGE "spoken_language"
 #define SETTING_SUBTITLE_LANGUAGE "subtitle_language"
 #define SETTING_FONT_SIZE "font_size"
@@ -96,7 +97,6 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #define START_RETRY_NS 1000000000ULL
 #define WORKER_ACTIVE_WAIT_MS 30
 #define WORKER_IDLE_WAIT_MS 250
-#define LEVEL_FLOOR_DB -60.0f
 
 /* Languages offered, as the codes the speech model and the names of the
  * translation models use, with the locale key of their name. */
@@ -127,8 +127,20 @@ enum pipeline_state {
 	PIPELINE_LISTENING,
 };
 
+/* What the user is told about the source, most pressing first. */
+enum source_status {
+	STATUS_DISABLED,
+	STATUS_NO_MICROPHONE,
+	STATUS_MODEL_ERROR,
+	STATUS_MICROPHONE_UNAVAILABLE,
+	STATUS_STARTING,
+	STATUS_LISTENING,
+};
+
 struct subtitle_source {
-	/* Set once in create and released in destroy; never reassigned. */
+	/* Set once in create and released in destroy; never reassigned. The
+	 * source that owns this data is not a reference: it outlives it. */
+	obs_source_t *source;
 	obs_source_t *text;
 	char *vad_model_path;
 	char *stt_model_path;
@@ -147,9 +159,7 @@ struct subtitle_source {
 	uint32_t background_color;
 	uint32_t background_opacity;
 	struct audio_ring ring;
-	float peak;
 	enum pipeline_state state;
-	bool speaking;
 	/* Latest translation, and a count of its changes so that the graphics
 	 * thread notices each new one. */
 	char *subtitle;
@@ -195,7 +205,7 @@ struct subtitle_source {
 	uint32_t drawn_background_opacity;
 	struct subtitle_engine engine;
 	uint32_t shown_version;
-	bool subtitle_seen;
+	enum source_status shown_status;
 };
 
 static const char *subtitle_source_get_name(void *type_data)
@@ -325,18 +335,8 @@ static void audio_capture_callback(void *param, obs_source_t *source, const stru
 	if (!output[0] || !out_frames)
 		return;
 
-	const float *samples = (const float *)output[0];
-	float peak = 0.0f;
-	for (uint32_t i = 0; i < out_frames; i++) {
-		float value = fabsf(samples[i]);
-		if (value > peak)
-			peak = value;
-	}
-
 	pthread_mutex_lock(&context->mutex);
-	audio_ring_write(&context->ring, samples, out_frames);
-	if (peak > context->peak)
-		context->peak = peak;
+	audio_ring_write(&context->ring, (const float *)output[0], out_frames);
 	pthread_mutex_unlock(&context->mutex);
 }
 
@@ -373,8 +373,6 @@ static void stop_capture(struct subtitle_source *context)
 
 	pthread_mutex_lock(&context->mutex);
 	audio_ring_reset(&context->ring);
-	context->peak = 0.0f;
-	context->speaking = false;
 	char *subtitle = context->subtitle;
 	context->subtitle = NULL;
 	context->subtitle_version++;
@@ -641,10 +639,6 @@ static void process_audio(struct subtitle_source *context)
 			speech_detector_update(&context->detector, probability, VOICE_ACTIVITY_WINDOW_MS);
 		bool speaking = speech_detector_is_speaking(&context->detector);
 
-		pthread_mutex_lock(&context->mutex);
-		context->speaking = speaking;
-		pthread_mutex_unlock(&context->mutex);
-
 		if (event == SPEECH_EVENT_START) {
 			context->utterance_size = audio_ring_read(&context->preroll, context->utterance, PREROLL_SAMPLES);
 			context->partial_size = 0;
@@ -703,7 +697,6 @@ static bool update_subtitle(struct subtitle_source *context)
 			(uint32_t)(TEXT_BOX_WIDTH * LINE_WIDTH_SHARE / (AVERAGE_CHAR_WIDTH * (float)font_size));
 		/* No text means that the capture stopped. */
 		subtitle_engine_show(&context->engine, subtitle, now_ms);
-		context->subtitle_seen = subtitle != NULL;
 		bfree(subtitle);
 	}
 
@@ -717,6 +710,47 @@ static bool update_subtitle(struct subtitle_source *context)
 	return true;
 }
 
+static enum source_status current_status(struct subtitle_source *context)
+{
+	pthread_mutex_lock(&context->mutex);
+	bool enabled = context->enabled;
+	bool has_choice = context->audio_source_uuid && *context->audio_source_uuid;
+	enum pipeline_state state = context->state;
+	pthread_mutex_unlock(&context->mutex);
+
+	if (!enabled)
+		return STATUS_DISABLED;
+	if (!has_choice)
+		return STATUS_NO_MICROPHONE;
+	if (state == PIPELINE_MODEL_ERROR)
+		return STATUS_MODEL_ERROR;
+	if (state == PIPELINE_SOURCE_UNAVAILABLE)
+		return STATUS_MICROPHONE_UNAVAILABLE;
+	return state == PIPELINE_LISTENING ? STATUS_LISTENING : STATUS_STARTING;
+}
+
+static const char *status_text(enum source_status status)
+{
+	switch (status) {
+	case STATUS_DISABLED:
+		return obs_module_text("StatusDisabled");
+	case STATUS_NO_MICROPHONE:
+		return obs_module_text("StatusNoMicrophone");
+	case STATUS_MODEL_ERROR:
+		return obs_module_text("StatusModelError");
+	case STATUS_MICROPHONE_UNAVAILABLE:
+		return obs_module_text("StatusMicrophoneUnavailable");
+	case STATUS_STARTING:
+		return obs_module_text("StatusStarting");
+	case STATUS_LISTENING:
+		break;
+	}
+	return obs_module_text("StatusListening");
+}
+
+/* The image is what the viewers see: it only carries a message when the
+ * user turned the subtitles on and has to do something to get them. The
+ * properties window shows the status in every case. */
 static void update_status(struct subtitle_source *context, float seconds)
 {
 	context->status_elapsed += seconds;
@@ -724,41 +758,20 @@ static void update_status(struct subtitle_source *context, float seconds)
 		return;
 	context->status_elapsed = 0.0f;
 
-	pthread_mutex_lock(&context->mutex);
-	bool enabled = context->enabled;
-	bool has_choice = context->audio_source_uuid && *context->audio_source_uuid;
-	enum pipeline_state state = context->state;
-	bool speaking = context->speaking;
-	float peak = context->peak;
-	context->peak = 0.0f;
-	pthread_mutex_unlock(&context->mutex);
-
-	if (!enabled) {
-		set_status_text(context, obs_module_text("StatusDisabled"));
-	} else if (!has_choice) {
-		set_status_text(context, obs_module_text("StatusNoMicrophone"));
-	} else if (state == PIPELINE_MODEL_ERROR) {
-		set_status_text(context, obs_module_text("StatusModelError"));
-	} else if (state == PIPELINE_SOURCE_UNAVAILABLE) {
-		set_status_text(context, obs_module_text("StatusMicrophoneUnavailable"));
-	} else if (state == PIPELINE_IDLE) {
-		set_status_text(context, obs_module_text("StatusStarting"));
-	} else if (context->subtitle_seen) {
-		/* Once subtitles have appeared, leave the image clear between
-		 * them instead of going back to the sound level. */
-		set_status_text(context, "");
+	enum source_status status = current_status(context);
+	if (status == STATUS_NO_MICROPHONE || status == STATUS_MODEL_ERROR ||
+	    status == STATUS_MICROPHONE_UNAVAILABLE) {
+		char message[256];
+		snprintf(message, sizeof(message), "%s %s", obs_module_text("StatusPrefix"), status_text(status));
+		set_status_text(context, message);
 	} else {
-		float db = peak > 0.0f ? 20.0f * log10f(peak) : LEVEL_FLOOR_DB;
-		if (db < LEVEL_FLOOR_DB)
-			db = LEVEL_FLOOR_DB;
-		if (db > 0.0f)
-			db = 0.0f;
-		int level = (int)((db - LEVEL_FLOOR_DB) * 100.0f / -LEVEL_FLOOR_DB);
+		set_status_text(context, "");
+	}
 
-		char status[128];
-		snprintf(status, sizeof(status), "%s %d %%",
-			 obs_module_text(speaking ? "StatusSpeech" : "StatusSilence"), level);
-		set_status_text(context, status);
+	if (status != context->shown_status) {
+		context->shown_status = status;
+		/* Reloads the properties window, if it is open. */
+		obs_source_update_properties(context->source);
 	}
 }
 
@@ -802,8 +815,6 @@ static void subtitle_source_update(void *data, obs_data_t *settings)
 
 static void *subtitle_source_create(obs_data_t *settings, obs_source_t *source)
 {
-	UNUSED_PARAMETER(source);
-
 	struct subtitle_source *context = bzalloc(sizeof(struct subtitle_source));
 	if (pthread_mutex_init(&context->mutex, NULL) != 0) {
 		bfree(context);
@@ -824,6 +835,7 @@ static void *subtitle_source_create(obs_data_t *settings, obs_source_t *source)
 	}
 
 	context->utterance = bmalloc(UTTERANCE_MAX_SAMPLES * sizeof(float));
+	context->source = source;
 	context->text = create_text_source();
 	context->vad_model_path = obs_module_file(VAD_MODEL_FILE);
 	context->stt_model_path = obs_module_file(STT_MODEL_FILE);
@@ -908,7 +920,7 @@ static void add_language_list(obs_properties_t *props, const char *setting, cons
 
 static obs_properties_t *subtitle_source_get_properties(void *data)
 {
-	UNUSED_PARAMETER(data);
+	struct subtitle_source *context = data;
 
 	obs_properties_t *props = obs_properties_create();
 	obs_property_t *list = obs_properties_add_list(props, SETTING_AUDIO_SOURCE, obs_module_text("Microphone"),
@@ -919,6 +931,17 @@ static obs_properties_t *subtitle_source_get_properties(void *data)
 	add_language_list(props, SETTING_SPOKEN_LANGUAGE, "SpokenLanguage");
 	add_language_list(props, SETTING_SUBTITLE_LANGUAGE, "SubtitleLanguage");
 	obs_properties_add_bool(props, SETTING_ENABLED, obs_module_text("Enabled"));
+	if (context) {
+		/* An information line: its text is the long description. */
+		enum source_status status = current_status(context);
+		obs_property_t *info =
+			obs_properties_add_text(props, PROPERTY_STATUS, obs_module_text("Status"), OBS_TEXT_INFO);
+		obs_property_set_long_description(info, status_text(status));
+		if (status == STATUS_MODEL_ERROR)
+			obs_property_text_set_info_type(info, OBS_TEXT_INFO_ERROR);
+		else if (status == STATUS_NO_MICROPHONE || status == STATUS_MICROPHONE_UNAVAILABLE)
+			obs_property_text_set_info_type(info, OBS_TEXT_INFO_WARNING);
+	}
 
 	obs_properties_add_int_slider(props, SETTING_FONT_SIZE, obs_module_text("FontSize"), MIN_FONT_SIZE, MAX_FONT_SIZE,
 				      2);

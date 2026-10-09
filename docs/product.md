@@ -14,7 +14,7 @@ L'interface principale doit rester simple : choisir le microphone, la langue par
 
 Critère d'acceptation principal : l'utilisateur installe le plugin, l'ajoute comme source OBS, choisit le microphone et Français -> English, active le traitement, prononce « Bonjour tout le monde et bienvenue sur mon stream » et voit apparaître une traduction proche de « Hello everyone and welcome to my stream. » Le flux normal ne doit nécessiter ni compte, ni clé API, ni serveur distant obligatoire, ni configuration technique manuelle.
 
-Le comportement doit rester sous le contrôle de l'utilisateur : le traitement du microphone commence uniquement après activation explicite et s'arrête à la désactivation. LiveSubtitles n'écoute que le microphone choisi; il ne capture pas l'audio système ou d'autres sources OBS en arrière-plan et ne modifie pas les scènes, profils ou réglages OBS. L'état actif/inactif doit être compréhensible dans l'interface.
+Le comportement doit rester sous le contrôle de l'utilisateur : le traitement du microphone commence uniquement après activation explicite et s'arrête à la désactivation. LiveSubtitles n'écoute que le microphone choisi; il ne capture pas l'audio système ou d'autres sources OBS en arrière-plan et ne modifie pas les scènes, profils ou réglages OBS. L'état actif/inactif doit être compréhensible dans l'interface : une ligne « État » dans les propriétés de la source l'indique (implémenté le 2026-10-09). L'image, vue par les viewers, reste vide quand tout va bien ou quand la source est désactivée; elle n'affiche un message que si le streamer doit agir (microphone non choisi ou indisponible, fichier de modèle introuvable).
 
 ## Confidentialité et erreurs
 
