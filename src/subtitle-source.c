@@ -55,6 +55,13 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #define PREROLL_SAMPLES (CAPTURE_SAMPLE_RATE * 3 / 10)
 #define UTTERANCE_MAX_SAMPLES (CAPTURE_SAMPLE_RATE * 20)
 
+/* While the user keeps talking, what was said so far is recognized again
+ * from its beginning and shown as provisional text: first once this much
+ * speech is collected, then each time this much more has been added. Each
+ * pass costs a full inference, so shorter steps mostly burn processor time. */
+#define PARTIAL_FIRST_SAMPLES (CAPTURE_SAMPLE_RATE * 3)
+#define PARTIAL_STEP_SAMPLES (CAPTURE_SAMPLE_RATE * 2)
+
 /* Box the subtitles are laid out in, in pixels. */
 #define TEXT_BOX_WIDTH 1600
 #define TEXT_BOX_HEIGHT 300
@@ -109,7 +116,9 @@ struct subtitle_source {
 	struct audio_ring preroll;
 	float *utterance;
 	size_t utterance_size;
+	size_t partial_size;
 	uint32_t utterance_count;
+	uint32_t partial_count;
 	uint64_t inference_total_ns;
 	uint64_t inference_max_ns;
 	uint64_t translation_total_ns;
@@ -232,6 +241,7 @@ static void stop_capture(struct subtitle_source *context)
 	context->translator = NULL;
 	audio_ring_reset(&context->preroll);
 	context->utterance_size = 0;
+	context->partial_size = 0;
 	context->last_start_attempt_ns = 0;
 
 	pthread_mutex_lock(&context->mutex);
@@ -246,15 +256,17 @@ static void stop_capture(struct subtitle_source *context)
 	/* Timings only: what was said is never written to the log. */
 	if (context->utterance_count) {
 		obs_log(LOG_INFO,
-			"audio capture stopped; %u utterance(s), recognition and translation took %.0f ms on average, %.0f ms at most, of which translation %.0f ms on average",
-			context->utterance_count,
-			(double)context->inference_total_ns / context->utterance_count / 1000000.0,
+			"audio capture stopped; %u utterance(s) and %u provisional pass(es), recognition and translation took %.0f ms on average, %.0f ms at most, of which translation %.0f ms on average",
+			context->utterance_count, context->partial_count,
+			(double)context->inference_total_ns / (context->utterance_count + context->partial_count) / 1000000.0,
 			(double)context->inference_max_ns / 1000000.0,
-			(double)context->translation_total_ns / context->utterance_count / 1000000.0);
+			(double)context->translation_total_ns / (context->utterance_count + context->partial_count) /
+				1000000.0);
 	} else {
 		obs_log(LOG_INFO, "audio capture stopped");
 	}
 	context->utterance_count = 0;
+	context->partial_count = 0;
 	context->inference_total_ns = 0;
 	context->inference_max_ns = 0;
 	context->translation_total_ns = 0;
@@ -402,8 +414,10 @@ static void reconcile_capture(struct subtitle_source *context)
 	bfree(uuid);
 }
 
-/* Recognizes the speech collected so far and publishes its translation. */
-static void recognize_utterance(struct subtitle_source *context)
+/* Recognizes the speech collected so far and publishes its translation. A
+ * provisional pass keeps the speech, so that the next pass starts over from
+ * its beginning and replaces the text instead of adding to it. */
+static void recognize_utterance(struct subtitle_source *context, bool final)
 {
 	uint64_t begin = os_gettime_ns();
 	char *text = transcriber_run(context->transcriber, context->utterance, context->utterance_size);
@@ -419,8 +433,14 @@ static void recognize_utterance(struct subtitle_source *context)
 	transcriber_free_text(text);
 	uint64_t elapsed = os_gettime_ns() - begin;
 
-	context->utterance_size = 0;
-	context->utterance_count++;
+	if (final) {
+		context->utterance_size = 0;
+		context->partial_size = 0;
+		context->utterance_count++;
+	} else {
+		context->partial_size = context->utterance_size;
+		context->partial_count++;
+	}
 	context->inference_total_ns += elapsed;
 	if (elapsed > context->inference_max_ns)
 		context->inference_max_ns = elapsed;
@@ -437,6 +457,19 @@ static void recognize_utterance(struct subtitle_source *context)
 	translator_free_text(translation);
 }
 
+/* Shows provisional text during a long stretch of speech. Only called once
+ * the waiting audio is processed, so that recognition never falls behind. */
+static void recognize_partial_if_due(struct subtitle_source *context)
+{
+	if (!speech_detector_is_speaking(&context->detector))
+		return;
+	if (context->utterance_size < PARTIAL_FIRST_SAMPLES ||
+	    context->utterance_size - context->partial_size < PARTIAL_STEP_SAMPLES)
+		return;
+
+	recognize_utterance(context, false);
+}
+
 /* Runs the speech models over every complete window waiting in the ring. */
 static void process_audio(struct subtitle_source *context)
 {
@@ -448,8 +481,10 @@ static void process_audio(struct subtitle_source *context)
 		if (available)
 			audio_ring_read(&context->ring, window, VOICE_ACTIVITY_WINDOW_SAMPLES);
 		pthread_mutex_unlock(&context->mutex);
-		if (!available)
+		if (!available) {
+			recognize_partial_if_due(context);
 			break;
+		}
 
 		float probability = 0.0f;
 		if (!voice_activity_process(context->vad, window, &probability))
@@ -463,8 +498,10 @@ static void process_audio(struct subtitle_source *context)
 		context->speaking = speaking;
 		pthread_mutex_unlock(&context->mutex);
 
-		if (event == SPEECH_EVENT_START)
+		if (event == SPEECH_EVENT_START) {
 			context->utterance_size = audio_ring_read(&context->preroll, context->utterance, PREROLL_SAMPLES);
+			context->partial_size = 0;
+		}
 
 		if (!speaking && event != SPEECH_EVENT_END) {
 			audio_ring_write(&context->preroll, window, VOICE_ACTIVITY_WINDOW_SAMPLES);
@@ -478,7 +515,7 @@ static void process_audio(struct subtitle_source *context)
 		 * while the user keeps talking. */
 		bool full = context->utterance_size + VOICE_ACTIVITY_WINDOW_SAMPLES > UTTERANCE_MAX_SAMPLES;
 		if (event == SPEECH_EVENT_END || full)
-			recognize_utterance(context);
+			recognize_utterance(context, true);
 	}
 }
 

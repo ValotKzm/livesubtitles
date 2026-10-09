@@ -29,15 +29,20 @@ Reste à faire :
 5. Essai à la voix de `small` + traduction le 2026-10-09 : 10 énoncés, 1,2 s en moyenne (1,3 s au pire) dont 0,06 s de traduction, arrêt et relance propres. Qualité jugée « vraiment mieux, pas parfaite », délai jugé acceptable; l'utilisateur compte sur l'affichage progressif et l'effacement pour la fluidité. Combinaison retenue. Premier essai du 2026-10-09 avec `base` en transcription : 60 énoncés, 0,52 s en moyenne dont 0,06 s de traduction, arrêt et relance propres, mais traductions jugées trop imprécises par l'utilisateur, qui met en cause `base`. `base` est donc écarté pour la transcription du français. `base` n'a été jugé en transcription française que sur de la synthèse vocale : sa qualité sur la vraie voix de l'utilisateur est inconnue. Si elle ne suffit pas, essayer `small` en transcription.
 6. Fait le 2026-10-09 : le modèle converti est publié dans la release GitHub `models-v1` du dépôt (archive `opus-mt-fr-en-ct2-int8.zip`) et CMake le télécharge avec vérification d'empreinte quand `data/models/opus-mt-fr-en/model.bin` manque. Vérifié en écartant le modèle local puis en reconfigurant. Un nouveau modèle de traduction (autre paire de langues) se publie de la même façon, dans une nouvelle release ou comme fichier supplémentaire.
 
-## Prochaine tâche
+## Dernière tâche : affichage progressif (jalon 4, seconde étape)
 
-Affichage progressif (jalon 4, seconde étape) : lire `PLAN.md` et `docs/architecture.md` avant de commencer.
+Fusionné dans `main` le 2026-10-09 après essai à la voix : 13 énoncés et 13 passes provisoires, 1,6 s en moyenne par passe (2,4 s au pire) dont 0,17 s de traduction, arrêt et relance propres. Jugé « pas mal » par l'utilisateur.
 
-Ensuite : moteur de sous-titres avec effacement progressif (jalon 5).
+- Principe : pendant la parole, dès 3 s d'énoncé puis à chaque fois que 2 s de plus se sont ajoutées, le worker retranscrit et retraduit tout l'énoncé depuis son début et publie ce texte provisoire (`recognize_partial_if_due` dans `src/subtitle-source.c`). La passe finale le remplace.
+- Pendant qu'une passe tourne, la fin de parole n'est pas détectée : le texte final d'une longue phrase peut arriver plus d'une seconde plus tard qu'avant.
+- Coût : une inférence complète par passe, donc processeur chargé en continu pendant une longue prise de parole. Non mesuré pendant un jeu; les seuils sont `PARTIAL_FIRST_SAMPLES` et `PARTIAL_STEP_SAMPLES`.
+
+## Prochaine tâche : moteur de sous-titres (jalon 5)
+
+Module indépendant d'OBS, avec ses tests (voir `docs/architecture.md`). À traiter d'abord, d'après l'essai du 2026-10-09 : quand l'utilisateur parle très longtemps sans s'arrêter, le texte affiché devient trop long (l'énoncé peut durer 20 s). Il faut donc n'afficher que la fin du texte (découpage en lignes, nombre de lignes borné), puis l'expiration et l'effacement progressif demandés.
 
 ## Demandes de l'utilisateur pas encore traitées
 
-- Texte affiché au fur et à mesure pendant une longue prise de parole, au lieu d'un bloc à la fin.
 - Effacement progressif du texte pour ne pas surcharger l'image.
 - Réglages de couleur du texte et de fond avec opacité.
 - Choix libre de la langue parlée et de la langue des sous-titres (français, anglais, russe, espagnol à terme).
