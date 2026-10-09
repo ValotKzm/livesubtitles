@@ -98,6 +98,10 @@ if(NOT EXISTS "${STT_MODEL_FILE}")
     EXPECTED_HASH SHA256=ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb
   )
 endif()
+# The translation model is converted by hand and not downloaded yet: see docs/development.md.
+if(NOT EXISTS "${MT_MODEL_DIR}/model.bin")
+  message(WARNING "Translation model not found in ${MT_MODEL_DIR}: the plugin will report a model error")
+endif()
 
 include(compilerconfig)
 include(defaults)
@@ -135,8 +139,10 @@ target_sources(
     src/speech-detector.c
     src/voice-activity.c
     src/transcriber.c
+    src/translator.cpp
 )
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE whisper)
+target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PRIVATE "${sentencepiece_SOURCE_DIR}/src")
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE whisper ctranslate2 sentencepiece-static)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 
@@ -172,14 +178,11 @@ if(ENABLE_TESTS)
   target_include_directories(translator-lib SYSTEM PRIVATE "${sentencepiece_SOURCE_DIR}/src")
   target_link_libraries(translator-lib PRIVATE ctranslate2 sentencepiece-static)
 
-  # Runs the real model, which is not downloaded yet: see docs/development.md for how to produce it.
   add_executable(translator-test tests/translator-test.cpp)
   target_link_libraries(translator-test PRIVATE translator-lib)
   if(EXISTS "${MT_MODEL_DIR}/model.bin")
     add_test(NAME translator COMMAND translator-test "${MT_MODEL_DIR}")
     set_tests_properties(translator PROPERTIES TIMEOUT 120)
-  else()
-    message(STATUS "Translation model not found in ${MT_MODEL_DIR}: the translator test is skipped")
   endif()
 
   # Measurement tool, run by hand with a model directory and a text file: see docs/development.md.

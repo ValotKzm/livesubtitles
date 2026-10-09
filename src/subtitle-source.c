@@ -27,6 +27,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "audio-ring.h"
 #include "speech-detector.h"
 #include "transcriber.h"
+#include "translator.h"
 #include "voice-activity.h"
 
 /* Text is drawn by a private instance of the built-in OBS text source. */
@@ -43,8 +44,11 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 #define VAD_MODEL_FILE "models/ggml-silero-v6.2.0.bin"
 #define STT_MODEL_FILE "models/ggml-small-q5_1.bin"
+#define MT_MODEL_DIR "models/opus-mt-fr-en"
 #define SPOKEN_LANGUAGE "fr"
 #define STT_MAX_THREADS 8
+/* More threads than this did not make translation faster. */
+#define MT_MAX_THREADS 4
 
 /* Audio kept from just before speech is detected, so that the first syllable
  * is not cut, and the longest stretch of speech sent to recognition at once. */
@@ -73,6 +77,7 @@ struct subtitle_source {
 	obs_source_t *text;
 	char *vad_model_path;
 	char *stt_model_path;
+	char *mt_model_path;
 
 	/* Guards the fields below, shared between the settings, graphics,
 	 * audio and worker threads. Never held while calling into another
@@ -100,12 +105,14 @@ struct subtitle_source {
 	struct voice_activity *vad;
 	struct speech_detector detector;
 	struct transcriber *transcriber;
+	struct translator *translator;
 	struct audio_ring preroll;
 	float *utterance;
 	size_t utterance_size;
 	uint32_t utterance_count;
 	uint64_t inference_total_ns;
 	uint64_t inference_max_ns;
+	uint64_t translation_total_ns;
 	uint64_t last_start_attempt_ns;
 	bool model_error_logged;
 
@@ -221,6 +228,8 @@ static void stop_capture(struct subtitle_source *context)
 	context->vad = NULL;
 	transcriber_destroy(context->transcriber);
 	context->transcriber = NULL;
+	translator_destroy(context->translator);
+	context->translator = NULL;
 	audio_ring_reset(&context->preroll);
 	context->utterance_size = 0;
 	context->last_start_attempt_ns = 0;
@@ -236,16 +245,19 @@ static void stop_capture(struct subtitle_source *context)
 
 	/* Timings only: what was said is never written to the log. */
 	if (context->utterance_count) {
-		obs_log(LOG_INFO, "audio capture stopped; %u utterance(s), recognition took %.0f ms on average, %.0f ms at most",
+		obs_log(LOG_INFO,
+			"audio capture stopped; %u utterance(s), recognition and translation took %.0f ms on average, %.0f ms at most, of which translation %.0f ms on average",
 			context->utterance_count,
 			(double)context->inference_total_ns / context->utterance_count / 1000000.0,
-			(double)context->inference_max_ns / 1000000.0);
+			(double)context->inference_max_ns / 1000000.0,
+			(double)context->translation_total_ns / context->utterance_count / 1000000.0);
 	} else {
 		obs_log(LOG_INFO, "audio capture stopped");
 	}
 	context->utterance_count = 0;
 	context->inference_total_ns = 0;
 	context->inference_max_ns = 0;
+	context->translation_total_ns = 0;
 }
 
 static int recognition_threads(void)
@@ -288,11 +300,11 @@ static enum pipeline_state start_capture(struct subtitle_source *context, const 
 		return PIPELINE_MODEL_ERROR;
 	}
 
-	/* Translation to English is done by the recognition model itself. */
+	/* The recognition model writes what was said; translation follows. */
 	struct transcriber_params transcriber_params = {
 		.model_path = context->stt_model_path,
 		.language = SPOKEN_LANGUAGE,
-		.translate = true,
+		.translate = false,
 		.threads = recognition_threads(),
 		/* The fitted context is faster on average but showed slow
 		 * outliers; the default is steadier. */
@@ -303,6 +315,22 @@ static enum pipeline_state start_capture(struct subtitle_source *context, const 
 		log_model_error(context, STT_MODEL_FILE);
 		voice_activity_destroy(context->vad);
 		context->vad = NULL;
+		obs_source_release(source);
+		return PIPELINE_MODEL_ERROR;
+	}
+
+	int translation_threads = recognition_threads();
+	struct translator_params translator_params = {
+		.model_dir = context->mt_model_path,
+		.threads = translation_threads > MT_MAX_THREADS ? MT_MAX_THREADS : translation_threads,
+	};
+	context->translator = translator_create(&translator_params);
+	if (!context->translator) {
+		log_model_error(context, MT_MODEL_DIR);
+		voice_activity_destroy(context->vad);
+		context->vad = NULL;
+		transcriber_destroy(context->transcriber);
+		context->transcriber = NULL;
 		obs_source_release(source);
 		return PIPELINE_MODEL_ERROR;
 	}
@@ -325,6 +353,8 @@ static enum pipeline_state start_capture(struct subtitle_source *context, const 
 		context->vad = NULL;
 		transcriber_destroy(context->transcriber);
 		context->transcriber = NULL;
+		translator_destroy(context->translator);
+		context->translator = NULL;
 		obs_source_release(source);
 		return PIPELINE_SOURCE_UNAVAILABLE;
 	}
@@ -372,11 +402,21 @@ static void reconcile_capture(struct subtitle_source *context)
 	bfree(uuid);
 }
 
-/* Recognizes the speech collected so far and publishes its text. */
+/* Recognizes the speech collected so far and publishes its translation. */
 static void recognize_utterance(struct subtitle_source *context)
 {
 	uint64_t begin = os_gettime_ns();
 	char *text = transcriber_run(context->transcriber, context->utterance, context->utterance_size);
+
+	/* The model describes non-speech sounds in brackets or parentheses,
+	 * such as "[BLANK_AUDIO]"; those are not subtitles. */
+	char *translation = NULL;
+	if (text && *text && *text != '[' && *text != '(') {
+		uint64_t translation_begin = os_gettime_ns();
+		translation = translator_run(context->translator, text);
+		context->translation_total_ns += os_gettime_ns() - translation_begin;
+	}
+	transcriber_free_text(text);
 	uint64_t elapsed = os_gettime_ns() - begin;
 
 	context->utterance_size = 0;
@@ -385,10 +425,8 @@ static void recognize_utterance(struct subtitle_source *context)
 	if (elapsed > context->inference_max_ns)
 		context->inference_max_ns = elapsed;
 
-	/* The model describes non-speech sounds in brackets or parentheses,
-	 * such as "[BLANK_AUDIO]"; those are not subtitles. */
-	if (text && *text && *text != '[' && *text != '(') {
-		char *subtitle = bstrdup(text);
+	if (translation && *translation) {
+		char *subtitle = bstrdup(translation);
 
 		pthread_mutex_lock(&context->mutex);
 		char *previous = context->subtitle;
@@ -396,7 +434,7 @@ static void recognize_utterance(struct subtitle_source *context)
 		pthread_mutex_unlock(&context->mutex);
 		bfree(previous);
 	}
-	transcriber_free_text(text);
+	translator_free_text(translation);
 }
 
 /* Runs the speech models over every complete window waiting in the ring. */
@@ -551,6 +589,7 @@ static void *subtitle_source_create(obs_data_t *settings, obs_source_t *source)
 	context->text = create_text_source();
 	context->vad_model_path = obs_module_file(VAD_MODEL_FILE);
 	context->stt_model_path = obs_module_file(STT_MODEL_FILE);
+	context->mt_model_path = obs_module_file(MT_MODEL_DIR);
 	context->status_elapsed = STATUS_INTERVAL_SECONDS;
 	subtitle_source_update(context, settings);
 
@@ -581,6 +620,7 @@ static void subtitle_source_destroy(void *data)
 	bfree(context->subtitle);
 	bfree(context->vad_model_path);
 	bfree(context->stt_model_path);
+	bfree(context->mt_model_path);
 	bfree(context->audio_source_uuid);
 	bfree(context->status_text);
 	bfree(context);

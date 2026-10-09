@@ -97,7 +97,11 @@ Même protocole que ci-dessus (Python `ctranslate2`, int8, 4 threads, faisceau d
 
 ### Intégration de CTranslate2 et SentencePiece (faite le 2026-10-09)
 
-État : les deux bibliothèques se compilent dans le build du projet et un module de traduction indépendant d'OBS (`src/translator.cpp`, interface C dans `src/translator.h`) est testé et mesuré. Le plugin ne l'utilise pas encore.
+État : les deux bibliothèques se compilent dans le build du projet et un module de traduction indépendant d'OBS (`src/translator.cpp`, interface C dans `src/translator.h`) est testé et mesuré. Depuis le 2026-10-09, le plugin transcrit avec Whisper puis traduit avec ce module, sur 4 threads au plus; `livesubtitles.dll` passe à 3,5 Mo et ne dépend d'aucune DLL supplémentaire (vérifié avec `dumpbin /dependents`).
+
+**Essai à la voix dans OBS (2026-10-09) avec `ggml-base-q5_1` en transcription :** 60 énoncés, 0,52 s en moyenne par énoncé (2,2 s au pire) dont 0,06 s de traduction, désactivation, réactivation et fermeture d'OBS sans blocage ni fuite mémoire. Délai jugé bon, mais traductions jugées trop imprécises : `base` transcrit mal la vraie voix, contrairement à ce que laissait penser la synthèse vocale. Le plugin transcrit donc avec `ggml-small-q5_1`.
+
+**Essai à la voix dans OBS (2026-10-09) avec `ggml-small-q5_1` en transcription :** 10 énoncés, 1,2 s en moyenne par énoncé (1,3 s au pire) dont 0,06 s de traduction, arrêt, relance et fermeture propres, aucune fuite mémoire. Qualité jugée nettement meilleure, sans être parfaite; délai jugé acceptable. **Choix actuel : `small` en transcription, puis OPUS-MT.**
 
 - **CTranslate2 v4.8.2 (MIT)**, récupéré par `FetchContent` depuis git, commit épinglé, car les archives de version ne contiennent pas les sous-modules qu'il compile (Ruy, cpu_features, spdlog). Lié statiquement, aucune DLL en plus.
 - **Backend de calcul : Ruy (Apache-2.0)**, fourni en sous-module de CTranslate2, sans Intel MKL et sans OpenMP (`WITH_RUY=ON`, `OPENMP_RUNTIME=NONE`). Il prend en charge les modèles int8, compile ses noyaux AVX2 sous MSVC quelle que soit la plateforme passée par le preset, et choisit le jeu d'instructions à l'exécution. Alternatives non retenues et non essayées : MKL (bibliothèque propriétaire d'Intel à installer à part), OpenBLAS (CTranslate2 ne l'utilise que pour le calcul float32, pas pour les modèles int8, et il faut le fournir précompilé), oneDNN (à fournir précompilé lui aussi). À réévaluer si Ruy se révèle trop lent sur une machine modeste.

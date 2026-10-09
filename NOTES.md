@@ -8,7 +8,7 @@ Dernière mise à jour : 2026-10-09.
 
 - Jalons 0 à 3 terminés. Jalon 4 : première étape terminée et vérifiée à la voix dans OBS.
 - Le plugin installé traduit chaque phrase du français vers l'anglais à la fin de la prise de parole, avec Whisper `small` en une seule inférence (option A), en 1,4 s environ sur la machine de développement.
-- Branche `feat/translation` ouverte, non commitée au 2026-10-09 : étapes 1 à 3 de l'option B faites et vérifiées (voir ci-dessous). Le plugin lui-même n'est pas encore modifié et se comporte comme sur `main`.
+- Branche `feat/translation` ouverte : étapes 1 à 3 de l'option B commitées, option B commitée et vérifiée à la voix dans OBS le 2026-10-09, pas encore fusionnée dans `main` (le modèle de traduction n'est pas téléchargeable par un clone neuf, voir le point 6). Le plugin installé sur la machine est celui de cette branche : Whisper `small` transcrit le français, puis OPUS-MT traduit en anglais, en 1,2 s environ.
 
 ## Tâche en cours : traduction en étape distincte (option B)
 
@@ -22,10 +22,11 @@ Fait le 2026-10-09 (détails et mesures dans `docs/development.md`, section « I
 2. Modèle `Helsinki-NLP/opus-mt-fr-en` converti par nos soins en int8 (79 Mo), placé dans `data/models/opus-mt-fr-en/`, hors dépôt.
 3. Module `src/translator.cpp` (interface C dans `src/translator.h`), test `translator` et outil `translator-bench`. Les cinq tests passent. Traduction seule : 30 à 140 ms par phrase courante, jusqu'à 0,6 s pour une phrase de 40 jetons.
 
+4. `src/subtitle-source.c` transcrit avec `ggml-small-q5_1` (`translate = false`) puis traduit dans `recognize_utterance`; le traducteur est lié au plugin (3,5 Mo, aucune DLL en plus). À l'arrêt de la capture, le journal donne le temps total par énoncé et la part de la traduction. Compilation et cinq tests réussis, plugin installé.
+
 Reste à faire :
 
-4. Dans `src/subtitle-source.c`, passer le transcripteur en `translate = false` avec `ggml-base-q5_1`, créer le traducteur et enchaîner la traduction dans `recognize_utterance`. Ajouter `src/translator.cpp`, `ctranslate2` et `sentencepiece-static` à la cible du plugin dans `CMakeLists.txt` (aujourd'hui seule la bibliothèque de test `translator-lib` les utilise). Ne pas journaliser le texte français intermédiaire.
-5. Remesurer le délai total dans le plugin, puis faire tester à la voix. `base` n'a été jugé en transcription française que sur de la synthèse vocale : sa qualité sur la vraie voix de l'utilisateur est inconnue. Si elle ne suffit pas, essayer `small` en transcription.
+5. Essai à la voix de `small` + traduction le 2026-10-09 : 10 énoncés, 1,2 s en moyenne (1,3 s au pire) dont 0,06 s de traduction, arrêt et relance propres. Qualité jugée « vraiment mieux, pas parfaite », délai jugé acceptable; l'utilisateur compte sur l'affichage progressif et l'effacement pour la fluidité. Combinaison retenue. Premier essai du 2026-10-09 avec `base` en transcription : 60 énoncés, 0,52 s en moyenne dont 0,06 s de traduction, arrêt et relance propres, mais traductions jugées trop imprécises par l'utilisateur, qui met en cause `base`. `base` est donc écarté pour la transcription du français. `base` n'a été jugé en transcription française que sur de la synthèse vocale : sa qualité sur la vraie voix de l'utilisateur est inconnue. Si elle ne suffit pas, essayer `small` en transcription.
 6. Décider où héberger le modèle de traduction converti pour que CMake le télécharge avec vérification d'empreinte, comme les modèles Whisper. Tant que ce n'est pas fait, un clone neuf du dépôt compile mais n'a ni le test `translator` ni de quoi traduire.
 
 Ensuite : affichage progressif (jalon 4, seconde étape), puis moteur de sous-titres avec effacement progressif (jalon 5).
@@ -54,7 +55,7 @@ L'utilisateur fait l'essai et ferme OBS; lire ensuite le dernier fichier de `%AP
 
 Tout est sous `.deps/` (ignoré par git) et peut être supprimé puis recréé :
 
-- `.deps/models/` : modèles Whisper `base`, `base-q5_1`, `small`, `small-q5_1` pour les mesures.
+- `.deps/models/` : modèles Whisper `base`, `base-q5_1`, `small`, `small-q5_1` pour les mesures. Seul `ggml-small-q5_1.bin` est aussi dans `data/models/` et installé.
 - `.deps/bench/` : neuf phrases françaises en wav, produites par la voix de synthèse Windows « Microsoft Hortense ». Le texte de chacune est dans `docs/development.md` par extraits; les régénérer avec `System.Speech` si besoin.
 - `.deps/bench-venv/` : environnement Python avec `ctranslate2`, `sentencepiece`, `huggingface_hub`, et depuis le 2026-10-09 `torch` (CPU), `transformers` et `sacremoses` pour convertir les modèles.
 - `.deps/bench-mt/` : modèles de traduction convertis par des tiers, pour mesure uniquement.
