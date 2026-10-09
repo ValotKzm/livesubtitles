@@ -1,0 +1,130 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 027d094..2a83c42 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -98,7 +98,9 @@ if(WIN32)
+     if(CMAKE_VERSION VERSION_LESS "3.15.0")
+       message(FATAL_ERROR "Use CMake 3.15 or later when setting BUILD_SHARED_LIBS to OFF")
+     endif()
+-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
++    if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
++      set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
++    endif()
+   endif()
+ elseif(NOT APPLE)
+   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,noexecstack")
+diff --git a/include/ctranslate2/replica_pool.h b/include/ctranslate2/replica_pool.h
+index b79adf6..6541c10 100644
+--- a/include/ctranslate2/replica_pool.h
++++ b/include/ctranslate2/replica_pool.h
+@@ -356,6 +356,7 @@ namespace ctranslate2 {
+       _replica.reset();
+ 
+       destroy_context(_device);
++      release_thread_resources();
+     }
+ 
+   private:
+diff --git a/include/ctranslate2/utils.h b/include/ctranslate2/utils.h
+index f1c122d..fa0d6a6 100644
+--- a/include/ctranslate2/utils.h
++++ b/include/ctranslate2/utils.h
+@@ -13,6 +13,8 @@ namespace ctranslate2 {
+   void log_system_config();
+   int get_gpu_count();
+   void set_num_threads(size_t num_threads);
++  // Destroys the computation thread pools owned by the current thread.
++  void release_thread_resources();
+ 
+   bool ends_with(const std::string& str, const std::string& suffix);
+   bool starts_with(const std::string& str, const std::string& prefix);
+diff --git a/src/cpu/backend.cc b/src/cpu/backend.cc
+index 02e818f..1a230df 100644
+--- a/src/cpu/backend.cc
++++ b/src/cpu/backend.cc
+@@ -106,9 +106,16 @@ namespace ctranslate2 {
+     }
+ 
+ #ifdef CT2_WITH_RUY
++    static thread_local std::unique_ptr<ruy::Context> ruy_context;
++
+     ruy::Context *get_ruy_context() {
+-      static thread_local ruy::Context context;
+-      return &context;
++      if (!ruy_context)
++        ruy_context = std::make_unique<ruy::Context>();
++      return ruy_context.get();
++    }
++
++    void release_ruy_context() {
++      ruy_context.reset();
+     }
+ #endif
+   }
+diff --git a/src/cpu/backend.h b/src/cpu/backend.h
+index 9c39769..131a41b 100644
+--- a/src/cpu/backend.h
++++ b/src/cpu/backend.h
+@@ -28,6 +28,7 @@ namespace ctranslate2 {
+     bool pack_gemm_weights(ComputeType compute_type);
+ #ifdef CT2_WITH_RUY
+     ruy::Context *get_ruy_context();
++    void release_ruy_context();
+ #endif
+ 
+   }
+diff --git a/src/cpu/parallel.cc b/src/cpu/parallel.cc
+index 784fe1c..2a6d39c 100644
+--- a/src/cpu/parallel.cc
++++ b/src/cpu/parallel.cc
+@@ -15,9 +15,16 @@ namespace ctranslate2 {
+       return num_threads;
+     }
+ 
++    static thread_local std::unique_ptr<BS::light_thread_pool> thread_pool;
++
+     BS::light_thread_pool& get_thread_pool() {
+-      static thread_local BS::thread_pool thread_pool(num_threads);
+-      return thread_pool;
++      if (!thread_pool)
++        thread_pool = std::make_unique<BS::light_thread_pool>(num_threads);
++      return *thread_pool;
++    }
++
++    void release_thread_pool() {
++      thread_pool.reset();
+     }
+ 
+ #endif
+diff --git a/src/cpu/parallel.h b/src/cpu/parallel.h
+index 9018c13..4148bcc 100644
+--- a/src/cpu/parallel.h
++++ b/src/cpu/parallel.h
+@@ -33,6 +33,7 @@ namespace ctranslate2 {
+     size_t get_num_threads();
+ 
+     BS::light_thread_pool& get_thread_pool();
++    void release_thread_pool();
+ #endif
+ 
+     template <typename Function>
+diff --git a/src/utils.cc b/src/utils.cc
+index 4f8bde5..1610d60 100644
+--- a/src/utils.cc
++++ b/src/utils.cc
+@@ -97,6 +97,15 @@ namespace ctranslate2 {
+ #endif
+   }
+ 
++  void release_thread_resources() {
++#ifndef _OPENMP
++    cpu::release_thread_pool();
++#endif
++#ifdef CT2_WITH_RUY
++    cpu::release_ruy_context();
++#endif
++  }
++
+   std::istream& getline(std::istream& input, std::string& str, bool remove_carriage_return) {
+     std::getline(input, str);
+ 

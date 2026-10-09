@@ -27,7 +27,7 @@ Lors d'un choix technique important, consigner la décision, sa raison, les alte
   - `cmake --preset windows-x64` : télécharge les sources d'OBS et les dépendances dans `.deps/` (hashes vérifiés par `buildspec.json`) et génère `build_x64/`.
   - `cmake --build --preset windows-x64` : produit `build_x64/RelWithDebInfo/livesubtitles.dll`.
   - `cmake --install build_x64 --config RelWithDebInfo` : copie le plugin dans `%ALLUSERSPROFILE%\obs-studio\plugins\livesubtitles\` (préfixe par défaut du modèle, sans droits administrateur). Fermer OBS avant. Pour retirer le plugin, supprimer ce seul dossier `livesubtitles`.
-  - `ctest --test-dir build_x64 -C RelWithDebInfo --output-on-failure` : exécute les tests (`tests/`, indépendants d'OBS; option CMake `ENABLE_TESTS`) : tampon circulaire, transitions silence/parole, modèle VAD réel sur du silence et sur un enregistrement de référence, et transcription réelle de ce même enregistrement (anglais). Aucun test automatisé ne couvre encore du français.
+  - `ctest --test-dir build_x64 -C RelWithDebInfo --output-on-failure` : exécute les tests (`tests/`, indépendants d'OBS; option CMake `ENABLE_TESTS`) : tampon circulaire, transitions silence/parole, modèle VAD réel sur du silence et sur un enregistrement de référence, transcription réelle de ce même enregistrement (anglais), et traduction réelle de deux phrases françaises si le modèle de traduction est présent. Aucun test automatisé ne couvre encore de l'audio français.
   - `build_x64\RelWithDebInfo\transcriber-bench.exe <modèle> <wav> fr 1 4` : mesure un modèle sur un enregistrement 16 kHz mono 16 bits (texte et temps de trois exécutions). `ctest.exe` est dans le même dossier que le CMake de VS 2022.
 - **Vérification du chargement :** lancer OBS, puis chercher `[livesubtitles]` dans le dernier fichier de `%APPDATA%\obs-studio\logs`; la ligne `plugin loaded successfully` doit y figurer.
 - **Licence du plugin :** GPL-2.0-or-later, celle du modèle officiel et de libobs.
@@ -94,6 +94,45 @@ Même protocole que ci-dessus (Python `ctranslate2`, int8, 4 threads, faisceau d
 - NLLB-200 est écarté : licence CC-BY-NC 4.0, incompatible avec des streams monétisés.
 - Orientation retenue, à confirmer à l'intégration : un seul modèle de reconnaissance (Whisper, multilingue) et un petit modèle de traduction par paire de langues, seul celui de la paire choisie étant présent sur la machine. Il traduit mieux, plus vite et pèse moins qu'un modèle multilingue unique. L'interface de traduction doit rester indépendante du modèle pour pouvoir en changer.
 - Non mesuré : les paires autres que français vers anglais avec OPUS-MT (le téléchargement des conversions a échoué), la qualité en russe et en espagnol jugée par un locuteur, et la transcription Whisper de ces langues.
+
+### Intégration de CTranslate2 et SentencePiece (faite le 2026-10-09)
+
+État : les deux bibliothèques se compilent dans le build du projet et un module de traduction indépendant d'OBS (`src/translator.cpp`, interface C dans `src/translator.h`) est testé et mesuré. Depuis le 2026-10-09, le plugin transcrit avec Whisper puis traduit avec ce module, sur 4 threads au plus; `livesubtitles.dll` passe à 3,5 Mo et ne dépend d'aucune DLL supplémentaire (vérifié avec `dumpbin /dependents`).
+
+**Essai à la voix dans OBS (2026-10-09) avec `ggml-base-q5_1` en transcription :** 60 énoncés, 0,52 s en moyenne par énoncé (2,2 s au pire) dont 0,06 s de traduction, désactivation, réactivation et fermeture d'OBS sans blocage ni fuite mémoire. Délai jugé bon, mais traductions jugées trop imprécises : `base` transcrit mal la vraie voix, contrairement à ce que laissait penser la synthèse vocale. Le plugin transcrit donc avec `ggml-small-q5_1`.
+
+**Essai à la voix dans OBS (2026-10-09) avec `ggml-small-q5_1` en transcription :** 10 énoncés, 1,2 s en moyenne par énoncé (1,3 s au pire) dont 0,06 s de traduction, arrêt, relance et fermeture propres, aucune fuite mémoire. Qualité jugée nettement meilleure, sans être parfaite; délai jugé acceptable. **Choix actuel : `small` en transcription, puis OPUS-MT.**
+
+- **CTranslate2 v4.8.2 (MIT)**, récupéré par `FetchContent` depuis git, commit épinglé, car les archives de version ne contiennent pas les sous-modules qu'il compile (Ruy, cpu_features, spdlog). Lié statiquement, aucune DLL en plus.
+- **Backend de calcul : Ruy (Apache-2.0)**, fourni en sous-module de CTranslate2, sans Intel MKL et sans OpenMP (`WITH_RUY=ON`, `OPENMP_RUNTIME=NONE`). Il prend en charge les modèles int8, compile ses noyaux AVX2 sous MSVC quelle que soit la plateforme passée par le preset, et choisit le jeu d'instructions à l'exécution. Alternatives non retenues et non essayées : MKL (bibliothèque propriétaire d'Intel à installer à part), OpenBLAS (CTranslate2 ne l'utilise que pour le calcul float32, pas pour les modèles int8, et il faut le fournir précompilé), oneDNN (à fournir précompilé lui aussi). À réévaluer si Ruy se révèle trop lent sur une machine modeste.
+- **Correctif appliqué à CTranslate2 : `cmake/patches/ctranslate2-windows.patch`** (une trentaine de lignes, appliqué par `FetchContent`). Deux raisons :
+  - Sans OpenMP, CTranslate2 et Ruy gardent chacun un pool de threads de calcul en variable `thread_local`. Sa destruction a lieu pendant la fin du thread, sous le verrou du chargeur Windows, et attend des threads qui ont besoin de ce même verrou pour se terminer : le thread ne se termine jamais dès que plus d'un thread de calcul est utilisé. Constaté avec le client `ct2-translator` d'origine, qui ne rend pas la main. Le correctif ajoute `ctranslate2::release_thread_resources()`, appelé par le thread de travail de CTranslate2 avant sa fin; `translator_create` l'appelle aussi après le chargement du modèle, qui crée un pool sur le thread appelant.
+  - En bibliothèque statique, CTranslate2 impose le runtime C statique (`/MT`), incompatible à l'édition de liens avec le plugin (`/MD`). Le correctif rend ce choix surchargeable.
+  - Compromis : le correctif est à revalider à chaque montée de version de CTranslate2. Le test `translator` détruit un traducteur sur un thread qui se termine : s'il se bloque, le délai de 120 s du test le signale.
+- **SentencePiece v0.2.1 (Apache-2.0)**, archive du tag avec SHA-256 vérifié, lié statiquement. Version choisie parce que c'est la dernière à embarquer son propre sous-ensemble d'Abseil et de protobuf-lite; la v0.2.2 télécharge tout Abseil à la configuration.
+- **Piège du modèle OBS :** il active `CMAKE_INCLUDE_CURRENT_DIR`, qui met le dossier de chaque cible dans ses chemins d'inclusion. Ruy contient des fichiers `time.h` et `cpuinfo.h` qui masquent alors les en-têtes système. `CMakeLists.txt` désactive ce réglage le temps de configurer ces dépendances.
+- **Licences :** Apache-2.0 est compatible avec la GPL version 3 mais pas avec la version 2 seule. Le plugin étant « GPL-2.0-or-later », le binaire distribué relèvera de fait de la GPL-3.0-or-later; à confirmer avec les notices avant distribution.
+- **Chemins :** les deux bibliothèques ouvrent les fichiers à partir de chemins UTF-8 convertis en chemins larges sous Windows (vérifié dans leurs sources), ce qui convient aux noms d'utilisateur accentués.
+
+Modèle de traduction français vers anglais, converti par nos soins le 2026-10-09 depuis `Helsinki-NLP/opus-mt-fr-en` (fiche Hugging Face : Apache-2.0) :
+
+- Commande, dans un environnement Python contenant `ctranslate2`, `transformers`, `torch`, `sentencepiece` et `sacremoses` : `ct2-transformers-converter --model Helsinki-NLP/opus-mt-fr-en --output_dir data/models/opus-mt-fr-en --quantization int8 --copy_files source.spm target.spm`.
+- Résultat : 79 Mo en cinq fichiers (`model.bin` 77 Mo, `shared_vocabulary.json`, `config.json`, `source.spm`, `target.spm`), chargés en 0,12 s. La conversion tierce utilisée pour les premières mesures pesait 154 Mo parce qu'elle stocke les poids en float32.
+- Le dossier `data/models/` est ignoré par git : le modèle n'est encore disponible que sur la machine où la conversion a été faite. Sans lui, CMake n'enregistre pas le test `translator` et l'annonce à la configuration. Où l'héberger pour que CMake et l'installateur le récupèrent avec vérification d'empreinte reste à décider.
+
+Mesure du module compilé (i7-13700KF, int8, faisceau de 4, neuf phrases de 2 à 40 jetons, outil `translator-bench`; mêmes plages de temps avec la conversion tierce et avec la nôtre) :
+
+| Backend | Threads | Temps par phrase | Phrase la plus longue (40 jetons) |
+|---|---|---|---|
+| Ruy, build du plugin | 4 | 27 à 137 ms | 260 à 600 ms selon les exécutions |
+| Ruy, build du plugin | 8 | 31 à 134 ms | 320 à 530 ms |
+| Ruy, build du plugin | 1 | 220 à 980 ms | 1,7 s |
+| MKL, roue Python (référence) | 4 | 15 à 51 ms | 75 ms |
+
+- Ruy est deux à quatre fois plus lent que MKL sur les phrases courantes et nettement plus sur les longues, avec une forte variation d'une exécution à l'autre. Le total estimé de l'option B (transcription `base` 0,5 à 0,65 s, puis traduction) reste de 0,55 à 0,8 s pour une phrase courante et d'environ 1,2 s au pire, contre 1,35 à 2,2 s pour `small` seul.
+- Passer de 4 à 8 threads ne gagne rien; un seul thread est sept fois plus lent, écart supérieur au nombre de threads et non expliqué.
+- Pistes si ce temps gêne sur une machine modeste : faisceau de 2 (valeur par défaut de CTranslate2) et traduction phrase par phrase des longues prises de parole.
+- Commande : `build_x64\RelWithDebInfo\translator-bench.exe <dossier du modèle> <fichier texte> 4`, le fichier texte contenant une phrase UTF-8 par ligne.
 
 ## Tests et performance
 
