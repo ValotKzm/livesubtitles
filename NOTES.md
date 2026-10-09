@@ -8,9 +8,9 @@ Dernière mise à jour : 2026-10-09.
 
 - Jalons 0 à 3 terminés. Jalon 4 : première étape terminée et vérifiée à la voix dans OBS.
 - Le plugin installé traduit chaque phrase du français vers l'anglais à la fin de la prise de parole, avec Whisper `small` en une seule inférence (option A), en 1,4 s environ sur la machine de développement.
-- Branche `feat/translation` ouverte : étapes 1 à 3 de l'option B commitées, option B commitée et vérifiée à la voix dans OBS le 2026-10-09, pas encore fusionnée dans `main` (le modèle de traduction n'est pas téléchargeable par un clone neuf, voir le point 6). Le plugin installé sur la machine est celui de cette branche : Whisper `small` transcrit le français, puis OPUS-MT traduit en anglais, en 1,2 s environ.
+- Option B vérifiée à la voix dans OBS et fusionnée dans `main` le 2026-10-09. Aucune branche de travail ouverte. Attention : le modèle de traduction n'est pas téléchargeable par un clone neuf (voir le point 6). Le plugin installé sur la machine est celui de `main` : Whisper `small` transcrit le français, puis OPUS-MT traduit en anglais, en 1,2 s environ.
 
-## Tâche en cours : traduction en étape distincte (option B)
+## Dernière tâche : traduction en étape distincte (option B)
 
 Feu vert donné par l'utilisateur le 2026-10-08. Raison : il veut des sous-titres dans d'autres langues que l'anglais (voir `docs/product.md`, section « Langues »), ce que Whisper ne produit pas.
 
@@ -27,9 +27,13 @@ Fait le 2026-10-09 (détails et mesures dans `docs/development.md`, section « I
 Reste à faire :
 
 5. Essai à la voix de `small` + traduction le 2026-10-09 : 10 énoncés, 1,2 s en moyenne (1,3 s au pire) dont 0,06 s de traduction, arrêt et relance propres. Qualité jugée « vraiment mieux, pas parfaite », délai jugé acceptable; l'utilisateur compte sur l'affichage progressif et l'effacement pour la fluidité. Combinaison retenue. Premier essai du 2026-10-09 avec `base` en transcription : 60 énoncés, 0,52 s en moyenne dont 0,06 s de traduction, arrêt et relance propres, mais traductions jugées trop imprécises par l'utilisateur, qui met en cause `base`. `base` est donc écarté pour la transcription du français. `base` n'a été jugé en transcription française que sur de la synthèse vocale : sa qualité sur la vraie voix de l'utilisateur est inconnue. Si elle ne suffit pas, essayer `small` en transcription.
-6. Décider où héberger le modèle de traduction converti pour que CMake le télécharge avec vérification d'empreinte, comme les modèles Whisper. Tant que ce n'est pas fait, un clone neuf du dépôt compile mais n'a ni le test `translator` ni de quoi traduire.
+6. Héberger le modèle de traduction converti pour que CMake le télécharge avec vérification d'empreinte, comme les modèles Whisper. Piste retenue : une archive attachée à une release GitHub du dépôt (public). L'outil `gh` n'est pas installé sur la machine et git n'a qu'un accès SSH : la release doit être créée par l'utilisateur sur le site, ou après installation et connexion de `gh`. Tant que ce n'est pas fait, un clone neuf du dépôt compile mais n'a ni le test `translator` ni de quoi traduire.
 
-Ensuite : affichage progressif (jalon 4, seconde étape), puis moteur de sous-titres avec effacement progressif (jalon 5).
+## Prochaine tâche
+
+Affichage progressif (jalon 4, seconde étape) : lire `PLAN.md` et `docs/architecture.md` avant de commencer.
+
+Ensuite : moteur de sous-titres avec effacement progressif (jalon 5).
 
 ## Demandes de l'utilisateur pas encore traitées
 
