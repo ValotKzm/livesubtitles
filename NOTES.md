@@ -46,13 +46,24 @@ Fusionné dans `main` le 2026-10-09 après essai à la voix (17 énoncés, 30 pa
 - Changement visible : une fois un premier sous-titre apparu, l'image reste vide entre deux sous-titres au lieu de revenir à la ligne « silence, niveau ». Cette ligne ne s'affiche plus qu'avant le premier sous-titre d'une capture.
 - Les valeurs sont dans `subtitle_engine_default_params`.
 
+## Jalon 6 : réglages de lisibilité (faits)
+
+Branche `feat/subtitle-style`, vérifiée dans OBS par l'utilisateur le 2026-10-09 (couleurs, fond, taille du texte, largeur occupée; journal sans erreur ni fuite mémoire).
+
+- Trois réglages dans les propriétés de la source : couleur du texte (blanc par défaut), couleur du fond (noir) et opacité du fond (50 %). Ils sont transmis à la source texte privée d'OBS (`color`, `bk_color`, `bk_opacity`); le fond s'efface avec le texte.
+- La source texte privée n'a plus de zone fixe (`extents`) : avec une zone fixe, OBS dessine le fond sur toute la zone, même sans texte. Sa taille suit donc le texte, et `video_render` la centre en bas d'une zone fixe de 1600 x 300, qui reste la taille de la source LiveSubtitles (inchangée pour les scènes existantes).
+- Une espace est ajoutée à chaque bout de ligne (`pad_lines`) pour que le fond ne s'arrête pas au ras des lettres.
+- Demandes de l'utilisateur après le premier essai, faites et validées : une ligne pleine doit occuper environ 90 % de la largeur de la zone (elle n'en prenait que les deux tiers), et la taille du texte doit être réglable.
+- Taille du texte : réglage de 36 à 120 pixels (72 par défaut). Le nombre de caractères par ligne en découle (`AVERAGE_CHAR_WIDTH`, 0,445 fois la taille, mesuré avec GDI+ sur des phrases anglaises et françaises en Arial) : 48 caractères à 72 pixels. Un texte plus large ou plus haut que la zone, par exemple en capitales, est réduit au rendu.
+
 ## Prochaine tâche
 
-Jalon 6 (configuration et modèles) : lire `PLAN.md` et `docs/product.md` avant de commencer. Demandes de l'utilisateur en attente ci-dessous : réglages de couleur et de fond, choix des langues.
+Reste du jalon 6 : choix des langues (français et anglais dans les deux sens, donc un second modèle de traduction et son téléchargement), présentation de l'état, messages d'erreur.
+
+Décision du 2026-10-09 : l'écoute reste continue tant que la case est cochée, même quand la source n'est pas visible. L'utilisateur préfère ne pas perdre de mots au redémarrage (rechargement des modèles) et accepte le coût : environ 500 Mo de mémoire (mesuré avec les outils de mesure : 366 Mo pour la transcription `small`, 130 Mo pour la traduction), processeur sollicité seulement pendant la parole.
 
 ## Demandes de l'utilisateur pas encore traitées
 
-- Réglages de couleur du texte et de fond avec opacité.
 - Choix libre de la langue parlée et de la langue des sous-titres (français, anglais, russe, espagnol à terme).
 - Préférence pour peu de modèles : un seul modèle de reconnaissance, et seulement le modèle de traduction de la paire choisie.
 
