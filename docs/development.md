@@ -135,6 +135,17 @@ Mesure du module compilé (i7-13700KF, int8, faisceau de 4, neuf phrases de 2 à
 - Pistes si ce temps gêne sur une machine modeste : faisceau de 2 (valeur par défaut de CTranslate2) et traduction phrase par phrase des longues prises de parole.
 - Commande : `build_x64\RelWithDebInfo\translator-bench.exe <dossier du modèle> <fichier texte> 4`, le fichier texte contenant une phrase UTF-8 par ligne.
 
+## Installateur Windows (ajouté le 2026-10-09)
+
+Outil : Inno Setup 6 (gratuit, licence propre autorisant tout usage), installé par `winget install JRSoftware.InnoSetup` dans `%LOCALAPPDATA%\Programs\Inno Setup 6`. Script : `cmake/windows/installer.iss`.
+
+- Construction, après la compilation : `cmake --install build_x64 --config RelWithDebInfo --prefix release/staging`, puis `ISCC.exe cmake/windows/installer.iss`. Résultat : `release/LiveSubtitles-<version>-windows-x64-setup.exe` (environ 290 Mo, dont les quatre modèles). Le dossier `release/` est ignoré par git. La version se passe par `/DVersion=x.y.z`.
+- L'installateur pose le plugin dans `%ALLUSERSPROFILE%\obs-studio\plugins\livesubtitles\` (droits administrateur demandés), sans le fichier de symboles, avec un dossier `licenses` : la GPL du plugin, `third-party-notices.txt` (`cmake/windows/resources/`) et le texte de licence de chaque bibliothèque, copié depuis les sources récupérées par CMake. Français et anglais.
+- La désinstallation (Paramètres Windows, « LiveSubtitles (OBS Studio plugin) ») ne retire que les fichiers posés par l'installateur. Les réglages de la source restent dans la collection de scènes d'OBS, que l'installateur ne touche jamais.
+- Toute bibliothèque ou modèle ajouté au plugin doit être ajouté à `third-party-notices.txt` et à la section `[Files]` du script.
+- Vérifié le 2026-10-12 sur la machine de développement (OBS 32.2.2) : installation, désinstallation puis réinstallation, OBS relancé à chaque étape, les autres plugins inchangés; puis 58 minutes de capture (200 énoncés, 1,6 s en moyenne, 4,6 s au pire) sans fuite mémoire.
+- Non signé : Windows SmartScreen affiche un avertissement au premier lancement. Une signature de code est payante; à décider avant une diffusion large.
+
 ## Tests et performance
 
 Couvrir les composants au fur et à mesure de leur implémentation : buffer circulaire (écrasement, lecture, reset), VAD (silence/voix/transitions), transcription et traduction, moteur de sous-titres (provisoire/final, remplacement, expiration, découpage) et pipeline intégré. Réutiliser les tests et outils existants; ne pas créer une infrastructure de test spéculative.
