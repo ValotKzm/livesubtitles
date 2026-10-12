@@ -40,6 +40,7 @@ french.FinishedLabel=LiveSubtitles est installé. Lancez OBS Studio, ajoutez une
 Source: "{#Staging}\bin\64bit\livesubtitles.dll"; DestDir: "{app}\bin\64bit"; Flags: ignoreversion
 Source: "{#Staging}\data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs
 Source: "{#Repo}LICENSE"; DestDir: "{app}\licenses"; DestName: "LiveSubtitles-GPL-2.0.txt"; Flags: ignoreversion
+Source: "{#SourcePath}resources\GPL-3.0.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "{#SourcePath}resources\third-party-notices.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "{#Deps}\whisper-src\LICENSE"; DestDir: "{app}\licenses"; DestName: "whisper.cpp.txt"; Flags: ignoreversion
 Source: "{#Deps}\ctranslate2-src\LICENSE"; DestDir: "{app}\licenses"; DestName: "CTranslate2.txt"; Flags: ignoreversion
