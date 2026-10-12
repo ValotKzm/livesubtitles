@@ -66,7 +66,7 @@ Finaliser la configuration nécessaire au MVP : langues, persistance des réglag
 
 **Sortie attendue :** configuration conservée correctement et démarrage sans manipulation technique non prévue pour l'utilisateur.
 
-### 7. Stabilisation et distribution MVP - À faire
+### 7. Stabilisation et distribution MVP - En cours
 
 Compléter les tests pertinents, vérifier confidentialité, mémoire bornée, nettoyage à l'arrêt et comportement sur une session prolongée. Préparer packaging/installateur et guide utilisateur selon les choix validés. Inclure une désinstallation qui retire uniquement les fichiers LiveSubtitles; ne supprimer modèles et réglages propres à l'utilisateur que sur demande explicite.
 

@@ -1,0 +1,50 @@
+LiveSubtitles
+=============
+
+LiveSubtitles is free software, distributed under the terms of the GNU
+General Public License, version 2 or (at your option) any later version.
+Because it is combined with components under the Apache License 2.0, this
+binary distribution as a whole is conveyed under the GNU General Public
+License version 3 or later. It comes with ABSOLUTELY NO WARRANTY.
+
+Source code: https://github.com/ValotKzm/livesubtitles
+
+The plugin includes the software and models below. The full text of each
+license is in this folder.
+
+Software
+--------
+
+whisper.cpp and ggml            MIT             https://github.com/ggml-org/whisper.cpp
+CTranslate2                     MIT             https://github.com/OpenNMT/CTranslate2
+  built with the changes in cmake/patches of the LiveSubtitles source code
+BS::thread_pool                 MIT             https://github.com/bshoshany/thread-pool
+ruy                             Apache-2.0      https://github.com/google/ruy
+cpuinfo                         BSD-2-Clause    https://github.com/pytorch/cpuinfo
+cpu_features                    Apache-2.0      https://github.com/google/cpu_features
+spdlog                          MIT             https://github.com/gabime/spdlog
+SentencePiece                   Apache-2.0      https://github.com/google/sentencepiece
+Abseil                          Apache-2.0      https://github.com/abseil/abseil-cpp
+Darts-clone                     BSD-3-Clause    https://github.com/s-yata/darts-clone
+esaxx                           MIT             https://github.com/hillbig/esaxx
+Protocol Buffers                BSD-3-Clause    https://github.com/protocolbuffers/protobuf
+
+Models
+------
+
+ggml-small-q5_1.bin
+  Whisper "small" speech recognition model by OpenAI (MIT), converted to
+  the ggml format by the whisper.cpp project.
+  https://huggingface.co/ggerganov/whisper.cpp
+
+ggml-silero-v6.2.0.bin
+  Silero VAD voice activity detection model by the Silero team (MIT),
+  converted to the ggml format by the whisper.cpp project.
+  https://huggingface.co/ggml-org/whisper-vad
+
+opus-mt-fr-en, opus-mt-en-fr
+  OPUS-MT translation models by the Language Technology Research Group at
+  the University of Helsinki (Apache-2.0), converted to the CTranslate2
+  format with 8-bit weights for LiveSubtitles.
+  https://huggingface.co/Helsinki-NLP/opus-mt-fr-en
+  https://huggingface.co/Helsinki-NLP/opus-mt-en-fr

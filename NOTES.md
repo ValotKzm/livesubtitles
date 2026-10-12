@@ -2,13 +2,14 @@
 
 Ce fichier dit où le travail s'est arrêté et ce qu'il faut savoir pour reprendre sans tout redécouvrir. Il complète `PLAN.md` (jalons) et `docs/` (décisions et mesures) sans les répéter. Le mettre à jour à la fin de chaque session; supprimer ce qui n'est plus vrai.
 
-Dernière mise à jour : 2026-10-09.
+Dernière mise à jour : 2026-10-12.
 
 ## Où on en est
 
-- Jalons 0 à 3 terminés. Jalon 4 : première étape terminée et vérifiée à la voix dans OBS.
-- Le plugin installé traduit chaque phrase du français vers l'anglais à la fin de la prise de parole, avec Whisper `small` en une seule inférence (option A), en 1,4 s environ sur la machine de développement.
-- Option B vérifiée à la voix dans OBS et fusionnée dans `main` le 2026-10-09. Aucune branche de travail ouverte. Le plugin installé sur la machine est celui de `main` : Whisper `small` transcrit le français, puis OPUS-MT traduit en anglais, en 1,2 s environ.
+- Jalons 0 à 6 terminés, vérifiés à la voix dans OBS et fusionnés dans `main` (poussé). Jalon 7 (stabilisation et distribution) commencé.
+- Le plugin : source OBS avec choix du microphone, langue parlée et langue des sous-titres (français, anglais, dans les deux sens ou sans traduction), activation, ligne d'état dans les propriétés, taille et couleur du texte, couleur et opacité du fond. Whisper `small` transcrit, OPUS-MT traduit via CTranslate2, en 1,2 s environ par phrase; texte provisoire pendant les longues prises de parole; deux lignes au plus, effacées en fondu.
+- Installateur Windows vérifié (installation, désinstallation, réinstallation) et session de 58 minutes sans problème le 2026-10-12.
+- Idée notée dans `PLAN.md` pour après le MVP, sans échéance : laisser chaque viewer choisir sa langue (extension Twitch et serveur).
 
 ## Dernière tâche : traduction en étape distincte (option B)
 
@@ -74,9 +75,19 @@ Branche `feat/status-display`, vérifiée dans OBS par l'utilisateur le 2026-10-
 - L'état complet est une ligne « État » dans la fenêtre des propriétés (désactivé, démarrage, à l'écoute, et les trois messages ci-dessus en couleur d'avertissement ou d'erreur). `video_tick` appelle `obs_source_update_properties` à chaque changement d'état pour recharger la fenêtre si elle est ouverte.
 - Le niveau sonore et l'indication parole/silence ne sont plus affichés : les rafraîchir en direct obligerait à recharger la fenêtre plusieurs fois par seconde, ce qui interrompt le réglage d'un curseur. Le mélangeur audio d'OBS montre déjà le niveau du microphone.
 
+## Jalon 7 : installateur Windows (fait)
+
+Branche `feat/windows-installer`, vérifiée par l'utilisateur le 2026-10-12 avec `release/LiveSubtitles-0.1.0-windows-x64-setup.exe` (292 Mo). Le plugin présent sur la machine est celui posé par l'installateur.
+
+- Essai, lu dans les journaux d'OBS : installation (plugin chargé, capture et un énoncé traduit), désinstallation (OBS redémarre sans trace du plugin, les autres plugins inchangés), réinstallation. Aucune fuite mémoire dans les quatre journaux.
+- Session longue du 2026-10-12, après réinstallation : 58 minutes de capture, 200 énoncés et 59 passes provisoires, 1,6 s en moyenne par énoncé (4,6 s au pire) dont 0,09 s de traduction, arrêt propre, aucune fuite. Aucun ralentissement senti par l'utilisateur. La moyenne est plus haute qu'au repos (1,2 s); le journal ne dit ni quel énoncé a pris 4,6 s ni la mémoire occupée.
+- Commandes et contenu : `docs/development.md`, section « Installateur Windows ».
+- À faire ensuite dans le jalon 7 : guide d'utilisation (`README.md`, absent du dépôt), vérification sur un processeur sans AVX2, champs `website` et `email` de `buildspec.json` encore à leurs valeurs d'exemple (l'utilisateur veut créer un site et réfléchit à l'adresse e-mail), publication de l'installateur (release GitHub).
+- Licences : les modèles et bibliothèques sont cités dans `third-party-notices.txt`. L'ensemble distribué relève de la GPL-3.0-or-later; seul le texte de la GPL-2.0 du dépôt est livré, à compléter par celui de la version 3 si l'on veut être rigoureux.
+
 ## Prochaine tâche
 
-Jalon 7 (stabilisation et distribution) : lire `PLAN.md` avant de commencer.
+Suite du jalon 7 ci-dessus : lire `PLAN.md` avant de commencer.
 
 Décision du 2026-10-09 : l'écoute reste continue tant que la case est cochée, même quand la source n'est pas visible. L'utilisateur préfère ne pas perdre de mots au redémarrage (rechargement des modèles) et accepte le coût : environ 500 Mo de mémoire (mesuré avec les outils de mesure : 366 Mo pour la transcription `small`, 130 Mo pour la traduction), processeur sollicité seulement pendant la parole.
 
