@@ -82,22 +82,26 @@ Branche `feat/windows-installer`, vérifiée par l'utilisateur le 2026-10-12 ave
 - Essai, lu dans les journaux d'OBS : installation (plugin chargé, capture et un énoncé traduit), désinstallation (OBS redémarre sans trace du plugin, les autres plugins inchangés), réinstallation. Aucune fuite mémoire dans les quatre journaux.
 - Session longue du 2026-10-12, après réinstallation : 58 minutes de capture, 200 énoncés et 59 passes provisoires, 1,6 s en moyenne par énoncé (4,6 s au pire) dont 0,09 s de traduction, arrêt propre, aucune fuite. L'utilisateur jouait à League of Legends pendant ce temps, sans que le jeu soit capturé par OBS (scène avec un fond d'écran et la source), et n'a senti aucun ralentissement. La moyenne est plus haute qu'au repos (1,2 s); le journal ne dit ni quel énoncé a pris 4,6 s ni la mémoire occupée.
 - Commandes et contenu : `docs/development.md`, section « Installateur Windows ».
-- À faire ensuite dans le jalon 7 : guide d'utilisation (`README.md`, absent du dépôt), vérification sur un processeur sans AVX2, champs `website` et `email` de `buildspec.json` encore à leurs valeurs d'exemple (l'utilisateur veut créer un site et réfléchit à l'adresse e-mail), publication de l'installateur (release GitHub).
+- À faire ensuite dans le jalon 7 : guide d'utilisation (`README.md`, absent du dépôt), vérification sur un processeur sans AVX2, champ `email` de `buildspec.json` encore à sa valeur d'exemple (l'utilisateur réfléchit à l'adresse).
 - Licences : les modèles et bibliothèques sont cités dans `third-party-notices.txt`. L'ensemble distribué relève de la GPL-3.0-or-later; les textes des versions 2 et 3 sont livrés.
 
 ## Jalon 7 : guide d'utilisation (fait)
 
 Branche `docs/user-guide`, fusionnée dans `main` le 2026-10-12 avec l'accord de l'utilisateur.
 
-- `README.md` : guide en anglais puis en français (installer, utiliser, messages d'erreur, désinstaller, licence). Il renvoie à la page Releases du dépôt, où l'installateur n'est pas encore publié.
+- `README.md` : guide en anglais puis en français (installer, utiliser, messages d'erreur, désinstaller, licence). Il renvoie à la page Releases du dépôt.
 - `cmake/windows/resources/GPL-3.0.txt` ajouté à l'installateur, reconstruit sans erreur le 2026-10-12 (`release/`, non réinstallé : le plugin en place vient de l'installateur précédent, identique à ce fichier près).
 - Question posée à l'utilisateur : un jeu tournait-il pendant la session de 58 minutes ? Si oui, retirer « ni pendant un jeu » des points ouverts.
 
 ## Prochaine tâche
 
-Suite du jalon 7 : publier l'installateur dans une release GitHub `v0.1.0` (demander le feu vert, c'est public), remplir `buildspec.json` quand l'utilisateur aura choisi son e-mail, vérifier un processeur sans AVX2. Lire `PLAN.md` avant de commencer.
+Version 0.1.0 publiée le 2026-10-12, avec l'accord de l'utilisateur : release GitHub `v0.1.0` du dépôt, avec `LiveSubtitles-0.1.0-windows-x64-setup.exe`. Une nouvelle version se publie de la même façon (`gh release create`), après reconstruction de l'installateur avec `/DVersion=x.y.z` et mise à jour de `version` dans `buildspec.json`.
 
-Site web : conseil donné le 2026-10-12 de le faire dans un dépôt séparé; en attendant, l'adresse du dépôt GitHub peut servir de site dans `buildspec.json`.
+Reste dans le jalon 7 : vérifier un processeur sans AVX2, mesurer sur une machine modeste ou pendant un jeu capturé, remplir `email` dans `buildspec.json` quand l'utilisateur aura choisi son adresse. Lire `PLAN.md` avant de commencer.
+
+Site web : l'utilisateur veut en créer un; conseil donné le 2026-10-12 de le faire dans un dépôt séparé. En attendant, `website` de `buildspec.json` pointe vers le dépôt GitHub.
+
+Signature de code : expliquée à l'utilisateur le 2026-10-12, conseil de rester non signé pour le MVP; pas de décision contraire de sa part.
 
 Décision du 2026-10-09 : l'écoute reste continue tant que la case est cochée, même quand la source n'est pas visible. L'utilisateur préfère ne pas perdre de mots au redémarrage (rechargement des modèles) et accepte le coût : environ 500 Mo de mémoire (mesuré avec les outils de mesure : 366 Mo pour la transcription `small`, 130 Mo pour la traduction), processeur sollicité seulement pendant la parole.
 
@@ -146,7 +150,7 @@ Les scripts Python de mesure de la traduction étaient temporaires et n'ont pas 
 
 ## Points ouverts
 
-- Site web et e-mail de `buildspec.json` : encore les valeurs d'exemple du modèle. Sans effet sous Windows; à remplir avant distribution.
+- E-mail de `buildspec.json` : encore la valeur d'exemple du modèle. Sans effet sous Windows.
 - Processeurs sans AVX2 : comportement non testé.
 - Aucun test automatisé sur du français.
 - Aucune mesure sur une machine modeste, ni pendant un jeu exigeant ou capturé par OBS (seul essai en jeu : League of Legends non capturé, le 2026-10-12).
