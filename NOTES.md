@@ -2,14 +2,33 @@
 
 Ce fichier dit où le travail s'est arrêté et ce qu'il faut savoir pour reprendre sans tout redécouvrir. Il complète `PLAN.md` (jalons) et `docs/` (décisions et mesures) sans les répéter. Le mettre à jour à la fin de chaque session; supprimer ce qui n'est plus vrai.
 
-Dernière mise à jour : 2026-10-12.
+Dernière mise à jour : 2026-10-22.
 
 ## Où on en est
 
 - Jalons 0 à 6 terminés, vérifiés à la voix dans OBS et fusionnés dans `main` (poussé). Jalon 7 (stabilisation et distribution) commencé.
-- Le plugin : source OBS avec choix du microphone, langue parlée et langue des sous-titres (français, anglais, dans les deux sens ou sans traduction), activation, ligne d'état dans les propriétés, taille et couleur du texte, couleur et opacité du fond. Whisper `small` transcrit, OPUS-MT traduit via CTranslate2, en 1,2 s environ par phrase; texte provisoire pendant les longues prises de parole; deux lignes au plus, effacées en fondu.
+- Le plugin : source OBS avec choix du microphone, langue parlée et langue des sous-titres (français, anglais, russe, dans tous les sens ou sans traduction; seules les langues cochées à l'installation sont proposées), activation, ligne d'état dans les propriétés, taille et couleur du texte, couleur et opacité du fond. Whisper `small` transcrit, OPUS-MT traduit via CTranslate2, en 1,2 s environ par phrase; texte provisoire pendant les longues prises de parole; deux lignes au plus, effacées en fondu.
 - Installateur Windows vérifié (installation, désinstallation, réinstallation) et session de 58 minutes sans problème le 2026-10-12.
+- Version 0.2.0 publiée le 2026-10-22 (russe et choix des langues à l'installation), fusionnée dans `main`.
 - Idée notée dans `PLAN.md` pour après le MVP, sans échéance : laisser chaque viewer choisir sa langue (extension Twitch et serveur).
+
+## Dernière tâche : ajout du russe (fusionné le 2026-10-22)
+
+Demande du 2026-10-22 : français vers russe, anglais vers russe, russe vers anglais; l'utilisateur a choisi d'ajouter aussi russe vers français pour que les six combinaisons fonctionnent.
+
+- Fait : quatre modèles convertis et publiés dans `models-v1`, téléchargés par CMake (téléchargement et empreinte vérifiés en écartant `opus-mt-ru-en`), russe dans la liste `languages` et les fichiers de langue, largeur de caractère par langue (cyrillique 15 % plus large), notices de licence (`opus-mt-ru-en` est en CC-BY-4.0), documentation. Compilation et six tests réussis. Mesures dans `docs/development.md`.
+- Installation : `cmake --install` échoue (« Permission denied ») car le plugin en place vient de l'installateur, posé avec les droits administrateur. Pour un essai, reconstruire l'installateur et le faire lancer à l'utilisateur. Installateur de test : `release/LiveSubtitles-0.2.0-windows-x64-setup.exe`, 547 Mo (292 Mo avant), 689 Mo installés. Rend plus pressante la décision « Livraison des modèles ».
+- Essai à la voix le 2026-10-22 (journal `2026-10-22 17-48-47.txt`), installé par cet installateur : fr→ru, ru→fr, ru→en, en→ru et une prise plus longue en fr→ru (14 énoncés, 17 passes provisoires). 1,3 s par énoncé en moyenne dans chaque combinaison (2,3 s au pire), dont 50 à 150 ms de traduction; relance propre à chaque changement de langue. Avis de l'utilisateur, qui parle un peu russe : « assez bien traduit, assez rapide ».
+- OBS a planté à la fermeture (`crashes/Crash 2026-10-22 17-55-06.txt`), après le déchargement de notre plugin : exception dans `libcef.dll`, depuis `obs_module_unload` d'`obs-browser`. Même signature le 2026-10-16. Pas lié à LiveSubtitles; conséquence : le journal n'a pas de ligne « Number of memory leaks ».
+
+## Dernière tâche : choix des langues à l'installation (même branche)
+
+Demande du 2026-10-22 : cocher les langues dans l'installateur. L'utilisateur a choisi le téléchargement des modèles pendant l'installation plutôt que tout embarquer.
+
+- Fait : composants `fr`, `en`, `ru` dans `installer.iss`, téléchargement vérifié et extraction des paires cochées, dossiers `data/languages/<code>`, nettoyage à la réinstallation; côté plugin, listes filtrées et état « Une langue choisie n'est pas installée ». Détails et vérifications dans `docs/development.md`, section « Installateur Windows ». Installateur : 175 Mo (547 Mo avant).
+- Piège : dans un script Python ou Perl passé en ligne par l'outil Bash, les barres obliques inverses doublées arrivent simples et deviennent des échappements (saut de page, retour chariot dans des chemins Windows). Écrire le code hexadécimal de la barre (x5c) ou passer par l'outil Edit; relire les octets avec `od -c` ou `cat -v`.
+- Essai de l'utilisateur le 2026-10-22 (journaux `21-07-33` et `21-09-13`) : vraie installation avec français et anglais seulement, page des langues jugée claire, listes limitées aux deux langues, fr→en fonctionnel; puis réinstallation avec les trois langues, deux sources en même temps (fr→en et fr→ru, 1,9 s par énoncé car elles se partagent le processeur), aucune fuite. Non vu en vrai : le message « Une langue choisie n'est pas installée » (la source fr→ru avait été supprimée); il est désormais écrit une fois dans le journal (`language not installed`). Plantage d'OBS à la fermeture de 21:05 aussi sans notre plugin chargé : vient bien d'`obs-browser`.
+- Fusionné dans `main` en deux commits (russe, puis choix des langues) et publié en release `v0.2.0` le 2026-10-22, avec l'accord de l'utilisateur. Seul l'essai réel du message de langue manquante reste à faire.
 
 ## Dernière tâche : traduction en étape distincte (option B)
 
@@ -95,7 +114,14 @@ Branche `docs/user-guide`, fusionnée dans `main` le 2026-10-12 avec l'accord de
 
 ## Prochaine tâche
 
-Version 0.1.0 publiée le 2026-10-12, avec l'accord de l'utilisateur : release GitHub `v0.1.0` du dépôt, avec `LiveSubtitles-0.1.0-windows-x64-setup.exe`. Une nouvelle version se publie de la même façon (`gh release create`), après reconstruction de l'installateur avec `/DVersion=x.y.z` et mise à jour de `version` dans `buildspec.json`.
+Version 0.1.0 publiée le 2026-10-12, avec l'accord de l'utilisateur : release GitHub `v0.1.0` du dépôt, avec `LiveSubtitles-0.1.0-windows-x64-setup.exe`. Version 0.2.0 publiée le 2026-10-22 de la même façon (`v0.2.0`, installateur de 175 Mo qui télécharge les modèles de traduction). Une nouvelle version se publie de la même façon (`gh release create`), après reconstruction de l'installateur avec `/DVersion=x.y.z` et mise à jour de `version` dans `buildspec.json`.
+
+Session arrêtée le 2026-10-12 à la demande de l'utilisateur. Ce qu'il a annoncé pour la suite :
+
+- Prochaine étape probable : ajouter une langue, le russe par exemple, en attendant des mesures sur d'autres machines. Voir « Jalon 6 : choix des langues » pour la marche à suivre (liste `languages`, un modèle `opus-mt-<parlée>-<sous-titres>` par paire, à convertir et publier dans une release de modèles). À vérifier avant de commencer : existence et qualité des modèles OPUS-MT pour chaque paire avec le russe, taille de l'installateur (environ 80 Mo par paire, voir « Livraison des modèles » dans les points ouverts) et rendu du cyrillique dans la source texte.
+- Essai avec le jeu capturé par OBS fait le 2026-10-12 (journal `2026-10-12 16-18-17.txt`, sans diffusion ni enregistrement) : 97 minutes, League of Legends puis Apex Legends en capture de jeu, 794 énoncés et 469 passes provisoires, 1,87 s en moyenne par énoncé (9,6 s au pire) dont 0,08 s de traduction, arrêt propre, aucune fuite. Rendu d'OBS : 99,992 % des images dans les temps, un blocage isolé de 0,93 s dans `tick_sources`, d'origine inconnue (0,10 s au pire pendant la session de 58 minutes). Ressenti de l'utilisateur : aucun ralentissement en jeu, délai des sous-titres pas observé, traductions « pas toujours très précises ». Cause non établie : transcription dégradée par le son du jeu dans le mix, ou vocabulaire de jeu inconnu d'OPUS-MT.
+- Constat du même essai : la source LiveSubtitles écoute « Mic/Aux », qui est chez l'utilisateur le « Broadcast Stream Mix » de sa GoXLR, c'est-à-dire le mélange envoyé au stream (voix, jeu, musique selon le routage de la table), pas le microphone seul. Explication probable, non vérifiée, des 8 énoncés par minute (3,4 pendant la session sans jeu capturé) et du pire cas à 9,6 s. Lui proposer de créer une source d'entrée audio sur « Chat Mic (TC-Helicon GoXLR) » et de la choisir dans LiveSubtitles.
+- Il créera le site de présentation et de téléchargement dans un autre projet, avec une autre session; conseils donnés le 2026-10-12 (site statique, GitHub Pages, bouton vers la dernière release). Quand le site existera, mettre son adresse dans `website` de `buildspec.json`, dans `AppPublisherURL` de `installer.iss` et dans le `README.md`.
 
 Reste dans le jalon 7 : vérifier un processeur sans AVX2, mesurer sur une machine modeste ou pendant un jeu capturé, remplir `email` dans `buildspec.json` quand l'utilisateur aura choisi son adresse. Lire `PLAN.md` avant de commencer.
 
@@ -153,8 +179,9 @@ Les scripts Python de mesure de la traduction étaient temporaires et n'ont pas 
 - E-mail de `buildspec.json` : encore la valeur d'exemple du modèle. Sans effet sous Windows.
 - Processeurs sans AVX2 : comportement non testé.
 - Aucun test automatisé sur du français.
-- Aucune mesure sur une machine modeste, ni pendant un jeu exigeant ou capturé par OBS (seul essai en jeu : League of Legends non capturé, le 2026-10-12).
-- Livraison des modèles (dans l'installateur ou téléchargement annoncé au choix des langues) : non décidée.
+- Aucune mesure sur une machine modeste, ni pendant une diffusion ou un enregistrement (encodage actif). Essais en jeu du 2026-10-12 sur la machine de développement seulement : League of Legends non capturé, puis League of Legends et Apex Legends capturés.
+- Le journal ne dit pas quel énoncé a pris le temps maximal, ni la durée de l'audio correspondant : impossible de distinguer une longue prise de parole d'un processeur saturé.
+- Livraison des modèles : décidée le 2026-10-22 (cases par langue dans l'installateur, téléchargement des paires cochées). Plus de modèle dans l'installateur hormis la reconnaissance et la détection de la voix; un ajout de langue ne le fait plus grossir.
 - Licences à revérifier avant distribution : modèles OPUS-MT (fiche Hugging Face : Apache-2.0; mention d'attribution à prévoir) et notices des bibliothèques liées. Les bibliothèques Apache-2.0 désormais liées (Ruy, SentencePiece, cpu_features) font relever le binaire de la GPL-3.0-or-later.
 - Le backend Ruy est deux à quatre fois plus lent que MKL et n'a été mesuré que sur la machine de développement.
 - Le correctif de CTranslate2 pourrait être proposé en amont pour ne plus avoir à le maintenir.

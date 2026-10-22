@@ -6,13 +6,14 @@ LiveSubtitles is an OBS Studio plugin that shows translated subtitles of what yo
 
 - **Languages:** French, English and Russian, in any direction, or subtitles without translation.
 - **Private:** your voice never leaves your computer and nothing is recorded.
-- **Requirements:** Windows 10 or 11 (64-bit) and OBS Studio 31.1 or later. The plugin takes about 700 MB on disk and about 500 MB of memory while it listens.
+- **Requirements:** Windows 10 or 11 (64-bit) and OBS Studio 31.1 or later. The plugin takes 200 to 700 MB on disk, depending on the languages installed, and about 500 MB of memory while it listens.
 
 ## Install
 
 1. Close OBS Studio.
 2. Download `LiveSubtitles-<version>-windows-x64-setup.exe` from the [Releases page](https://github.com/ValotKzm/livesubtitles/releases) and run it.
 3. The installer is not signed, so Windows shows a blue "Windows protected your PC" window: click **More info**, then **Run anyway**.
+4. Tick the languages you will speak or want subtitles in. The installer downloads the translation models they need (about 65 MB per pair of languages), so stay connected to the Internet. To add or remove a language later, close OBS Studio and run the installer again.
 
 ## Use
 
@@ -32,6 +33,7 @@ LiveSubtitles listens to the microphone you chose for as long as the box is tick
 | --- | --- |
 | Choose a microphone | Pick your microphone in the source properties. |
 | The microphone is unavailable | Check that the microphone is plugged in and works in Windows, then pick it again. |
+| A chosen language is not installed: run the installer again and tick it | Close OBS Studio, run the installer again and tick that language, or choose an installed language. |
 | A model file is missing, reinstall the plugin | Close OBS Studio and run the installer again. |
 
 The translation is done by a small model on your computer: it is good for everyday speech, not perfect, and it does not know streaming vocabulary well.
@@ -52,13 +54,14 @@ LiveSubtitles est un plugin OBS Studio qui affiche en direct, sur votre stream, 
 
 - **Langues :** français, anglais et russe, dans tous les sens, ou sous-titres sans traduction.
 - **Confidentialité :** votre voix ne quitte jamais votre ordinateur et rien n'est enregistré.
-- **Configuration requise :** Windows 10 ou 11 (64 bits) et OBS Studio 31.1 ou plus récent. Le plugin occupe environ 700 Mo sur le disque et environ 500 Mo de mémoire pendant l'écoute.
+- **Configuration requise :** Windows 10 ou 11 (64 bits) et OBS Studio 31.1 ou plus récent. Le plugin occupe de 200 à 700 Mo sur le disque selon les langues installées, et environ 500 Mo de mémoire pendant l'écoute.
 
 ## Installer
 
 1. Fermez OBS Studio.
 2. Téléchargez `LiveSubtitles-<version>-windows-x64-setup.exe` sur la [page Releases](https://github.com/ValotKzm/livesubtitles/releases) et lancez-le.
 3. L'installateur n'est pas signé : Windows affiche une fenêtre bleue « Windows a protégé votre ordinateur ». Cliquez sur **Informations complémentaires**, puis sur **Exécuter quand même**.
+4. Cochez les langues que vous parlerez ou voudrez en sous-titres. L'installateur télécharge les modèles de traduction nécessaires (environ 65 Mo par paire de langues) : restez connecté à Internet. Pour ajouter ou retirer une langue plus tard, fermez OBS Studio et relancez l'installateur.
 
 ## Utiliser
 
@@ -78,6 +81,7 @@ LiveSubtitles écoute le microphone choisi tant que la case est cochée, même q
 | --- | --- |
 | Choisissez un microphone | Choisissez votre microphone dans les propriétés de la source. |
 | Le microphone est indisponible | Vérifiez que le microphone est branché et fonctionne dans Windows, puis choisissez-le de nouveau. |
+| Une langue choisie n'est pas installée : relancez l'installateur et cochez-la | Fermez OBS Studio, relancez l'installateur et cochez cette langue, ou choisissez une langue installée. |
 | Un fichier de modèle est introuvable, réinstallez le plugin | Fermez OBS Studio et relancez l'installateur. |
 
 La traduction est faite par un petit modèle sur votre ordinateur : elle convient à la conversation courante, sans être parfaite, et connaît mal le vocabulaire du streaming.
