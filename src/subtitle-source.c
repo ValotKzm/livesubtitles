@@ -37,11 +37,9 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #define DEFAULT_FONT_SIZE 72
 #define MIN_FONT_SIZE 36
 #define MAX_FONT_SIZE 120
-/* Width of an average character of running text in this font, as a share
- * of the font size (measured with GDI+ on English and French sentences),
- * and the share of the box a full line may take. Text in capitals is wider:
- * what does not fit is scaled down when drawn. */
-#define AVERAGE_CHAR_WIDTH 0.445f
+/* Share of the box a full line may take. Text in capitals is wider than the
+ * average character of each language: what does not fit is scaled down when
+ * drawn. */
 #define LINE_WIDTH_SHARE 0.97f
 
 #define SETTING_AUDIO_SOURCE "audio_source"
@@ -99,13 +97,17 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #define WORKER_IDLE_WAIT_MS 250
 
 /* Languages offered, as the codes the speech model and the names of the
- * translation models use, with the locale key of their name. */
+ * translation models use, with the locale key of their name and the width of
+ * an average character of running text in the font, as a share of the font
+ * size (measured with GDI+ on sentences of each language). */
 static const struct {
 	const char *code;
 	const char *name_key;
+	float char_width;
 } languages[] = {
-	{"fr", "LanguageFrench"},
-	{"en", "LanguageEnglish"},
+	{"fr", "LanguageFrench", 0.445f},
+	{"en", "LanguageEnglish", 0.445f},
+	{"ru", "LanguageRussian", 0.51f},
 };
 #define LANGUAGE_COUNT (sizeof(languages) / sizeof(languages[0]))
 
@@ -120,10 +122,40 @@ static const char *known_language(const char *code, const char *fallback)
 	return fallback;
 }
 
+/* The installer creates an empty folder for each language the user ticked,
+ * and downloads the translation models of those languages only. Without the
+ * parent folder, as after "cmake --install", every language is there. */
+#define LANGUAGE_MARKER_DIR "languages"
+
+static bool language_installed(const char *code)
+{
+	char *markers = obs_module_file(LANGUAGE_MARKER_DIR);
+	if (!markers)
+		return true;
+	bfree(markers);
+
+	char marker[32];
+	snprintf(marker, sizeof(marker), LANGUAGE_MARKER_DIR "/%s", code);
+	char *path = obs_module_file(marker);
+	bool installed = path != NULL;
+	bfree(path);
+	return installed;
+}
+
+static float language_char_width(const char *code)
+{
+	for (size_t i = 0; i < LANGUAGE_COUNT; i++) {
+		if (strcmp(code, languages[i].code) == 0)
+			return languages[i].char_width;
+	}
+	return languages[0].char_width;
+}
+
 enum pipeline_state {
 	PIPELINE_IDLE,
 	PIPELINE_SOURCE_UNAVAILABLE,
 	PIPELINE_MODEL_ERROR,
+	PIPELINE_LANGUAGE_MISSING,
 	PIPELINE_LISTENING,
 };
 
@@ -131,6 +163,7 @@ enum pipeline_state {
 enum source_status {
 	STATUS_DISABLED,
 	STATUS_NO_MICROPHONE,
+	STATUS_LANGUAGE_MISSING,
 	STATUS_MODEL_ERROR,
 	STATUS_MICROPHONE_UNAVAILABLE,
 	STATUS_STARTING,
@@ -432,6 +465,16 @@ static enum pipeline_state start_capture(struct subtitle_source *context, const 
 		return PIPELINE_SOURCE_UNAVAILABLE;
 	}
 
+	if (!language_installed(spoken) || !language_installed(subtitle)) {
+		/* Starting is retried every second: say it once, like a model error. */
+		if (!context->model_error_logged) {
+			obs_log(LOG_WARNING, "language not installed, %s to %s", spoken, subtitle);
+			context->model_error_logged = true;
+		}
+		obs_source_release(source);
+		return PIPELINE_LANGUAGE_MISSING;
+	}
+
 	context->vad = voice_activity_create(context->vad_model_path);
 	if (!context->vad) {
 		log_model_error(context, VAD_MODEL_FILE);
@@ -689,12 +732,13 @@ static bool update_subtitle(struct subtitle_source *context)
 	char *subtitle = changed ? bstrdup(context->subtitle) : NULL;
 	context->shown_version = context->subtitle_version;
 	uint32_t font_size = context->font_size;
+	float char_width = language_char_width(context->subtitle_language);
 	pthread_mutex_unlock(&context->mutex);
 
 	if (changed) {
 		/* As many characters as fill the width of the box at this size. */
 		context->engine.params.line_chars =
-			(uint32_t)(TEXT_BOX_WIDTH * LINE_WIDTH_SHARE / (AVERAGE_CHAR_WIDTH * (float)font_size));
+			(uint32_t)(TEXT_BOX_WIDTH * LINE_WIDTH_SHARE / (char_width * (float)font_size));
 		/* No text means that the capture stopped. */
 		subtitle_engine_show(&context->engine, subtitle, now_ms);
 		bfree(subtitle);
@@ -722,6 +766,8 @@ static enum source_status current_status(struct subtitle_source *context)
 		return STATUS_DISABLED;
 	if (!has_choice)
 		return STATUS_NO_MICROPHONE;
+	if (state == PIPELINE_LANGUAGE_MISSING)
+		return STATUS_LANGUAGE_MISSING;
 	if (state == PIPELINE_MODEL_ERROR)
 		return STATUS_MODEL_ERROR;
 	if (state == PIPELINE_SOURCE_UNAVAILABLE)
@@ -736,6 +782,8 @@ static const char *status_text(enum source_status status)
 		return obs_module_text("StatusDisabled");
 	case STATUS_NO_MICROPHONE:
 		return obs_module_text("StatusNoMicrophone");
+	case STATUS_LANGUAGE_MISSING:
+		return obs_module_text("StatusLanguageMissing");
 	case STATUS_MODEL_ERROR:
 		return obs_module_text("StatusModelError");
 	case STATUS_MICROPHONE_UNAVAILABLE:
@@ -759,7 +807,7 @@ static void update_status(struct subtitle_source *context, float seconds)
 	context->status_elapsed = 0.0f;
 
 	enum source_status status = current_status(context);
-	if (status == STATUS_NO_MICROPHONE || status == STATUS_MODEL_ERROR ||
+	if (status == STATUS_NO_MICROPHONE || status == STATUS_LANGUAGE_MISSING || status == STATUS_MODEL_ERROR ||
 	    status == STATUS_MICROPHONE_UNAVAILABLE) {
 		char message[256];
 		snprintf(message, sizeof(message), "%s %s", obs_module_text("StatusPrefix"), status_text(status));
@@ -914,8 +962,10 @@ static void add_language_list(obs_properties_t *props, const char *setting, cons
 {
 	obs_property_t *list = obs_properties_add_list(props, setting, obs_module_text(label_key), OBS_COMBO_TYPE_LIST,
 						       OBS_COMBO_FORMAT_STRING);
-	for (size_t i = 0; i < LANGUAGE_COUNT; i++)
-		obs_property_list_add_string(list, obs_module_text(languages[i].name_key), languages[i].code);
+	for (size_t i = 0; i < LANGUAGE_COUNT; i++) {
+		if (language_installed(languages[i].code))
+			obs_property_list_add_string(list, obs_module_text(languages[i].name_key), languages[i].code);
+	}
 }
 
 static obs_properties_t *subtitle_source_get_properties(void *data)
@@ -937,7 +987,7 @@ static obs_properties_t *subtitle_source_get_properties(void *data)
 		obs_property_t *info =
 			obs_properties_add_text(props, PROPERTY_STATUS, obs_module_text("Status"), OBS_TEXT_INFO);
 		obs_property_set_long_description(info, status_text(status));
-		if (status == STATUS_MODEL_ERROR)
+		if (status == STATUS_LANGUAGE_MISSING || status == STATUS_MODEL_ERROR)
 			obs_property_text_set_info_type(info, OBS_TEXT_INFO_ERROR);
 		else if (status == STATUS_NO_MICROPHONE || status == STATUS_MICROPHONE_UNAVAILABLE)
 			obs_property_text_set_info_type(info, OBS_TEXT_INFO_WARNING);

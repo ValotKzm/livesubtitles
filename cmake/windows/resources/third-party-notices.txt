@@ -42,9 +42,20 @@ ggml-silero-v6.2.0.bin
   converted to the ggml format by the whisper.cpp project.
   https://huggingface.co/ggml-org/whisper-vad
 
-opus-mt-fr-en, opus-mt-en-fr
+opus-mt-fr-en, opus-mt-en-fr, opus-mt-fr-ru, opus-mt-en-ru, opus-mt-ru-fr
   OPUS-MT translation models by the Language Technology Research Group at
   the University of Helsinki (Apache-2.0), converted to the CTranslate2
   format with 8-bit weights for LiveSubtitles.
   https://huggingface.co/Helsinki-NLP/opus-mt-fr-en
   https://huggingface.co/Helsinki-NLP/opus-mt-en-fr
+  https://huggingface.co/Helsinki-NLP/opus-mt-fr-ru
+  https://huggingface.co/Helsinki-NLP/opus-mt-en-ru
+  https://huggingface.co/Helsinki-NLP/opus-mt-ru-fr
+
+opus-mt-ru-en
+  OPUS-MT translation model by the Language Technology Research Group at
+  the University of Helsinki, licensed under the Creative Commons
+  Attribution 4.0 International license (CC-BY-4.0,
+  https://creativecommons.org/licenses/by/4.0/). Modified for LiveSubtitles:
+  converted to the CTranslate2 format with 8-bit weights.
+  https://huggingface.co/Helsinki-NLP/opus-mt-ru-en

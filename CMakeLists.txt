@@ -101,9 +101,13 @@ endif()
 # Our own conversions of the OPUS-MT models, published as a release of this repository: see docs/development.md.
 set(_mt_model_hash_fr-en 281c06fa89a1f0a3bff47ffc3445fc5087c54bfbb50ed37816240a0b9c902b1f)
 set(_mt_model_hash_en-fr b852892f3f2cf862f42a16894cecedc8c368e29f153a123d33538a4ce7d7b4fe)
-foreach(_mt_pair fr-en en-fr)
+set(_mt_model_hash_fr-ru 94f7302bc0ef4db6f7f84cc71c7152edacb32320db0f6b2210b4bb82dbbd3eb7)
+set(_mt_model_hash_en-ru a1cff77d5ee3d368ede58073513f4eca8c283a3fd49d354be98412b1e9b57b4f)
+set(_mt_model_hash_ru-en 86abffec4bfce3532a09c09b9a73c5a292db8a7c2ac84cb0ce20876531718571)
+set(_mt_model_hash_ru-fr 589e590d93ea07592d2a1fd41c5968d3f7460934c79a8ea645fbab1898df20ef)
+foreach(_mt_pair fr-en en-fr fr-ru en-ru ru-en ru-fr)
   if(NOT EXISTS "${MODEL_DIR}/opus-mt-${_mt_pair}/model.bin")
-    message(STATUS "Downloading the ${_mt_pair} translation model (61 MB)")
+    message(STATUS "Downloading the ${_mt_pair} translation model (about 65 MB)")
     set(_mt_model_archive "${CMAKE_CURRENT_BINARY_DIR}/opus-mt-${_mt_pair}-ct2-int8.zip")
     file(
       DOWNLOAD
