@@ -4,9 +4,9 @@ LiveSubtitles is an OBS Studio plugin that shows translated subtitles of what yo
 
 [Français](#français)
 
-- **Languages:** French and English, in both directions, or subtitles without translation.
+- **Languages:** French, English and Russian, in any direction, or subtitles without translation.
 - **Private:** your voice never leaves your computer and nothing is recorded.
-- **Requirements:** Windows 10 or 11 (64-bit) and OBS Studio 31.1 or later. The plugin takes about 300 MB on disk and about 500 MB of memory while it listens.
+- **Requirements:** Windows 10 or 11 (64-bit) and OBS Studio 31.1 or later. The plugin takes about 700 MB on disk and about 500 MB of memory while it listens.
 
 ## Install
 
@@ -50,9 +50,9 @@ LiveSubtitles is free software under the GNU General Public License, version 2 o
 
 LiveSubtitles est un plugin OBS Studio qui affiche en direct, sur votre stream, les sous-titres traduits de ce que vous dites. Il est gratuit, fonctionne entièrement sur votre ordinateur et ne demande ni compte, ni clé API, ni serveur.
 
-- **Langues :** français et anglais, dans les deux sens, ou sous-titres sans traduction.
+- **Langues :** français, anglais et russe, dans tous les sens, ou sous-titres sans traduction.
 - **Confidentialité :** votre voix ne quitte jamais votre ordinateur et rien n'est enregistré.
-- **Configuration requise :** Windows 10 ou 11 (64 bits) et OBS Studio 31.1 ou plus récent. Le plugin occupe environ 300 Mo sur le disque et environ 500 Mo de mémoire pendant l'écoute.
+- **Configuration requise :** Windows 10 ou 11 (64 bits) et OBS Studio 31.1 ou plus récent. Le plugin occupe environ 700 Mo sur le disque et environ 500 Mo de mémoire pendant l'écoute.
 
 ## Installer
 

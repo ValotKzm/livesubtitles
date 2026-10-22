@@ -37,11 +37,9 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #define DEFAULT_FONT_SIZE 72
 #define MIN_FONT_SIZE 36
 #define MAX_FONT_SIZE 120
-/* Width of an average character of running text in this font, as a share
- * of the font size (measured with GDI+ on English and French sentences),
- * and the share of the box a full line may take. Text in capitals is wider:
- * what does not fit is scaled down when drawn. */
-#define AVERAGE_CHAR_WIDTH 0.445f
+/* Share of the box a full line may take. Text in capitals is wider than the
+ * average character of each language: what does not fit is scaled down when
+ * drawn. */
 #define LINE_WIDTH_SHARE 0.97f
 
 #define SETTING_AUDIO_SOURCE "audio_source"
@@ -99,13 +97,17 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #define WORKER_IDLE_WAIT_MS 250
 
 /* Languages offered, as the codes the speech model and the names of the
- * translation models use, with the locale key of their name. */
+ * translation models use, with the locale key of their name and the width of
+ * an average character of running text in the font, as a share of the font
+ * size (measured with GDI+ on sentences of each language). */
 static const struct {
 	const char *code;
 	const char *name_key;
+	float char_width;
 } languages[] = {
-	{"fr", "LanguageFrench"},
-	{"en", "LanguageEnglish"},
+	{"fr", "LanguageFrench", 0.445f},
+	{"en", "LanguageEnglish", 0.445f},
+	{"ru", "LanguageRussian", 0.51f},
 };
 #define LANGUAGE_COUNT (sizeof(languages) / sizeof(languages[0]))
 
@@ -118,6 +120,15 @@ static const char *known_language(const char *code, const char *fallback)
 			return languages[i].code;
 	}
 	return fallback;
+}
+
+static float language_char_width(const char *code)
+{
+	for (size_t i = 0; i < LANGUAGE_COUNT; i++) {
+		if (strcmp(code, languages[i].code) == 0)
+			return languages[i].char_width;
+	}
+	return languages[0].char_width;
 }
 
 enum pipeline_state {
@@ -689,12 +700,13 @@ static bool update_subtitle(struct subtitle_source *context)
 	char *subtitle = changed ? bstrdup(context->subtitle) : NULL;
 	context->shown_version = context->subtitle_version;
 	uint32_t font_size = context->font_size;
+	float char_width = language_char_width(context->subtitle_language);
 	pthread_mutex_unlock(&context->mutex);
 
 	if (changed) {
 		/* As many characters as fill the width of the box at this size. */
 		context->engine.params.line_chars =
-			(uint32_t)(TEXT_BOX_WIDTH * LINE_WIDTH_SHARE / (AVERAGE_CHAR_WIDTH * (float)font_size));
+			(uint32_t)(TEXT_BOX_WIDTH * LINE_WIDTH_SHARE / (char_width * (float)font_size));
 		/* No text means that the capture stopped. */
 		subtitle_engine_show(&context->engine, subtitle, now_ms);
 		bfree(subtitle);
